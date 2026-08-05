@@ -1,6 +1,7 @@
 import { env } from "@/lib/env";
 import { getRedis } from "@/lib/redis";
 import type { RedisInstance } from "@/lib/redis";
+import type { FeedbackTelemetry } from "@/services/feedback";
 
 /**
  * Feedback queue seam. Feedback generation is expensive (multi-shot LLM). With
@@ -18,6 +19,7 @@ export interface FeedbackQueueRequest {
   role: string | null;
   resumeContext?: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
+  telemetry?: FeedbackTelemetry[];
 }
 
 export interface FeedbackQueueResult {

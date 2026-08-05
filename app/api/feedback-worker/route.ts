@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
       role: job.role ?? undefined,
       resumeContext: job.resumeContext,
       history: job.history,
+      telemetry: job.telemetry,
     });
     await saveFeedback(
       {

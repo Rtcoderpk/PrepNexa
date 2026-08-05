@@ -68,6 +68,63 @@ export async function generateFeedback(params: {
 }
 
 /**
+ * Loads the per-question speech + vision metrics already persisted during the
+ * interview (via respond's telemetry upserts) and maps them to the telemetry
+ * shape the feedback prompt consumes. Best-effort: missing rows are skipped.
+ * Runs two flat queries — the Database types don't model nested relationships.
+ */
+export async function loadInterviewTelemetry(
+  interviewId: string,
+  client?: SupabaseClient,
+): Promise<FeedbackTelemetry[]> {
+  const supabase = client ?? (await createServerClient());
+
+  const { data: questions } = await supabase
+    .from("interview_questions")
+    .select("id, question")
+    .eq("interview_id", interviewId)
+    .order("created_at", { ascending: true });
+
+  if (!questions?.length) return [];
+
+  const questionIds = questions.map((q) => q.id);
+
+  const [{ data: speechRows }, { data: visionRows }] = await Promise.all([
+    supabase
+      .from("speech_metrics")
+      .select("question_id, fluency_score, filler_density, words_per_minute")
+      .in("question_id", questionIds),
+    supabase
+      .from("vision_metrics")
+      .select("question_id, eye_contact_pct, avg_confidence, blink_rate_per_min, posture_score")
+      .in("question_id", questionIds),
+  ]);
+
+  const speechByQuestion = new Map((speechRows ?? []).map((r) => [r.question_id, r]));
+  const visionByQuestion = new Map((visionRows ?? []).map((r) => [r.question_id, r]));
+
+  const telemetry: FeedbackTelemetry[] = [];
+  for (const q of questions) {
+    const speech = speechByQuestion.get(q.id);
+    const vision = visionByQuestion.get(q.id);
+    if (!speech && !vision) continue;
+
+    telemetry.push({
+      question: q.question,
+      wordsPerMinute: speech?.words_per_minute ?? undefined,
+      fillerDensity: speech?.filler_density ?? undefined,
+      fluencyScore: speech?.fluency_score ?? undefined,
+      eyeContactPct: vision?.eye_contact_pct ?? undefined,
+      avgConfidence: vision?.avg_confidence ?? undefined,
+      blinkRatePerMin: vision?.blink_rate_per_min ?? undefined,
+      postureScore: vision?.posture_score ?? undefined,
+    });
+  }
+
+  return telemetry;
+}
+
+/**
  * Persists the report: normalized score columns on interviews, per-question
  * notes, and the full report payload in feedback_reports. Marks completed.
  *

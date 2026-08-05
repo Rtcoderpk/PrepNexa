@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
-import { generateFeedback, saveFeedback } from "@/services/feedback";
+import { generateFeedback, saveFeedback, loadInterviewTelemetry } from "@/services/feedback";
 import {
   enqueueFeedback,
   isFeedbackQueued,
@@ -90,12 +90,15 @@ export async function POST(request: NextRequest) {
   // Queue seam: when FEEDBACK_QUEUE=redis, enqueue and return immediately; the
   // worker drains the queue and the results page reflects completion.
   if (isFeedbackQueued()) {
+    const telemetry = await loadInterviewTelemetry(interview.id);
+
     const result = await enqueueFeedback({
       interviewId: interview.id,
       userId: user.id,
       role,
       resumeContext,
       history,
+      telemetry,
     });
 
     if (result.queued) {
@@ -108,10 +111,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const telemetry = await loadInterviewTelemetry(interview.id);
     const report = await generateFeedback({
       role,
       resumeContext,
       history,
+      telemetry,
     });
 
     await saveFeedback({

@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
-import { generateFeedback, saveFeedback } from "@/services/feedback";
+import { generateFeedback, saveFeedback, loadInterviewTelemetry } from "@/services/feedback";
 import type { InterviewFeedbackReport } from "@/types/feedback";
 
 export interface FeedbackResult {
@@ -52,10 +52,13 @@ export async function generateInterviewFeedbackAction(params: {
     resumeContext = resumeFile?.extracted_text ?? undefined;
   }
 
+  const telemetry = await loadInterviewTelemetry(interview.id);
+
   const report = await generateFeedback({
     role,
     resumeContext,
     history: params.history,
+    telemetry,
   });
 
   await saveFeedback({
