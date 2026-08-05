@@ -55,9 +55,6 @@ data access in `lib/`, server actions in `actions/`, providers behind
 │   │   │   ├── interviewer.ts
 │   │   │   ├── feedback.ts
 │   │   │   └── resume.ts
-│   │   └── memory/              # conversation memory (embeddings-backed)
-│   │       ├── memory-store.ts
-│   │       └── semantic-memory.ts
 │   ├── interview.ts             # interview orchestration (questions, completion)
 │   ├── feedback.ts              # feedback generation + persistence
 │   ├── resume.ts                # PDF parse + storage
