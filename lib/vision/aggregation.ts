@@ -31,15 +31,9 @@ export interface AggregatedVision {
   postureScore: number;
 }
 
-const EYE_CONTACT_THRESHOLD = 0.7;
-const BLINK_EAR_THRESHOLD = 0.21;
-const SMILE_MAR_THRESHOLD = 0.45;
 const BLINK_COOLDOWN_MS = 120;
 
-export function aggregateVision(
-  samples: VisionSample[],
-  eyeContactThreshold = EYE_CONTACT_THRESHOLD,
-): AggregatedVision {
+export function aggregateVision(samples: VisionSample[]): AggregatedVision {
   if (samples.length === 0) {
     return {
       durationSec: 0,
@@ -56,7 +50,8 @@ export function aggregateVision(
     };
   }
 
-  const engaged = samples.filter((s) => s.confidence >= eyeContactThreshold).length;
+  // Eye contact is per-sample gaze engagement (already thresholded in the hook).
+  const engaged = samples.filter((s) => s.eyeContact).length;
   const smiling = samples.filter((s) => s.smile).length;
   const total = samples.length;
 

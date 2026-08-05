@@ -58,7 +58,7 @@ const FPS = 10;
 const SAMPLE_INTERVAL_MS = 1000 / FPS;
 
 function noopAggregation(): AggregatedVision {
-  return aggregateVision([], 0.7);
+  return aggregateVision([]);
 }
 
 /**

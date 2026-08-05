@@ -59,7 +59,7 @@ const SKILL_COLUMNS = [
 
 type SkillRow = Record<(typeof SKILL_COLUMNS)[number], number | null>;
 
-function average(values: Array<number | null>): number | null {
+export function average(values: Array<number | null>): number | null {
   const present = values.filter((v): v is number => v !== null);
   if (present.length === 0) return null;
   return Math.round((present.reduce((s, v) => s + v, 0) / present.length) * 10) / 10;
@@ -76,7 +76,7 @@ function bucketLabel(intervalStart: Date, intervalUnit: "week" | "month"): strin
 }
 
 /** Starting point of the week/month an ISO timestamp belongs to. */
-function intervalStart(iso: string, unit: "week" | "month"): Date {
+export function intervalStart(iso: string, unit: "week" | "month"): Date {
   const d = new Date(iso);
   if (unit === "week") {
     const day = (d.getDay() + 6) % 7; // Monday = 0
@@ -89,12 +89,12 @@ function intervalStart(iso: string, unit: "week" | "month"): Date {
 }
 
 /** Build a contiguous date-axis series (oldest first) of interviews per interval. */
-function buildSeries(
+export function buildSeries(
   rows: Array<{ created_at: string; overall_score: number | null }>,
   unit: "week" | "month",
   buckets: number,
+  now = new Date(),
 ): Array<{ label: string; interviews: number; averageScore: number | null }> {
-  const now = new Date();
   const start = new Date(now);
   if (unit === "week") start.setDate(start.getDate() - (buckets - 1) * 7);
   else start.setMonth(start.getMonth() - (buckets - 1));
