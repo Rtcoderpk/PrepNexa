@@ -52,7 +52,7 @@ Trigger `handle_new_user()` auto-creates a row on signup.
 | status | text | `in_progress` / `completed` |
 | resume_file_id | uuid FK | nullable, set null on delete |
 | — feedback summary — | | |
-| overall_score | smallint | 0–10 |
+| overall_score | integer | 0–10 |
 | summary | text | 2–4 sentence summary |
 | strengths | text[] | |
 | weaknesses | text[] | (new; distinct from strengths) |
@@ -61,13 +61,13 @@ Trigger `handle_new_user()` auto-creates a row on signup.
 | hiring_recommendation | text | e.g. "Strong hire" / "No hire" |
 | improvement_roadmap | text | personalized action plan |
 | — multi-dimensional scores (0–10) — | | |
-| technical_score | smallint | |
-| communication_score | smallint | |
-| confidence_score | smallint | blended CV + speech + LLM |
-| grammar_score | smallint | |
-| speaking_speed_score | smallint | |
-| eye_contact_score | smallint | from CV aggregates |
-| body_language_score | smallint | from CV aggregates |
+| technical_score | integer | |
+| communication_score | integer | |
+| confidence_score | integer | blended CV + speech + LLM |
+| grammar_score | integer | |
+| speaking_speed_score | integer | |
+| eye_contact_score | integer | from CV aggregates |
+| body_language_score | integer | from CV aggregates |
 | created_at / completed_at | timestamptz | |
 
 Indexes: `(user_id)`, `(created_at desc)`. `updated_at` auto-trigger.
@@ -81,8 +81,8 @@ Indexes: `(user_id)`, `(created_at desc)`. `updated_at` auto-trigger.
 | category | text | introduction/technical/behavioral/scenario/problem_solving |
 | question | text | |
 | answer | text | candidate's answer (transcript or typed) |
-| difficulty | smallint | 1–3 (adaptive) — new |
-| score | smallint | 0–10 |
+| difficulty | integer | 1–3 (adaptive) — new |
+| score | integer | 0–10 |
 | feedback | text | |
 | is_follow_up | boolean | |
 | created_at | timestamptz | |

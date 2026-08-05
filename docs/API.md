@@ -65,24 +65,45 @@ Persist the candidate's answer, run analysis, return Alex's next question.
 ```
 - Behavior:
   1. Zod-validate; reject `answer` with prompt-injection guard.
-  2. Persist answer onto the last unanswered question.
-  3. If `speech.audioUrl`/audio present → proxy to pythonai `/transcribe`; else
-     use `speech.transcript` directly (Web Speech fallback).
-  4. Persist `speech_metrics` and `vision_metrics` (clamped + validated).
-  5. Build conversation history, call `ILLMProvider.generateInterviewerResponse`
-     with adaptive difficulty + no-repeat constraint.
-  6. Persist next question; if completion phrase → mark interview completed.
+  2. Persist answer onto the last asked question.
+  3. Persist `speech_metrics` and `vision_metrics` (clamped + validated).
+  4. **Semantic scoring** runs concurrently with next-question generation:
+     `evaluateAnswer` blends pythonai embedding cosine with an LLM judgment
+     (0.35·cosine + 0.65·LLM) and persists `score` + `feedback` on the answered
+     question. Best-effort — never blocks or fails the main flow.
+  5. Build conversation history, call the LLM provider with adaptive difficulty
+     + no-repeat constraint.
+  6. Persist the next question; if completion phrase → mark interview completed.
 - Returns `{ message, category, isFollowUp, isComplete, questionId }`.
 
 ### POST /api/interview/feedback
 Generate and persist the full feedback report.
 - body: `{ interviewId, history: [{ role, content }] }`
-- Runs: LLM feedback pass → validate via `feedbackReportSchema` → blend with
-  stored per-question scores → persist `feedback_reports` + normalized columns on
-  `interviews` → mark completed.
-- Returns `{ feedback }` where `feedback` is the full report.
+- Behavior:
+  - Loads the per-question `speech_metrics` + `vision_metrics` persisted during
+    the interview (`loadInterviewTelemetry`) and passes them to the LLM so the
+    report's confidence/eye-contact/body-language/speaking-speed scores derive
+    from real data, not transcript tone alone.
+  - **Sync path** (`FEEDBACK_QUEUE=off`, default): runs the LLM feedback pass →
+    validate via `feedbackReportSchema` → persist `feedback_reports` + normalized
+    columns on `interviews` → mark completed. Returns `{ feedback }`.
+  - **Queued path** (`FEEDBACK_QUEUE=redis`): pushes the job (with telemetry) to a
+    Redis list and returns `{ queued: true, jobId }` immediately. A worker polls
+    `/api/feedback-worker`; the client polls `{ jobId }` via the status endpoint.
+- Returns `{ feedback }` (sync) or `{ queued, jobId }` (queued).
 
-### POST /api/analysis/speech
+### GET /api/interview/feedback/status?jobId=…
+Poll whether a queued feedback job has finished.
+- Auth required.
+- Returns `{ done: boolean }`.
+
+### GET /api/feedback-worker
+Drain the Redis feedback queue. Not called by the browser — invoked by a cron
+(Vercel Cron, PM2 `cron_restart`, or a container loop).
+- Requires the `x-worker-secret` header matching `FEEDBACK_WORKER_SECRET`.
+- Returns `{ processed }`.
+
+### POST /api/analysis/transcribe
 WAV upload → Faster Whisper transcript + speech metrics (proxies to pythonai).
 - `multipart/form-data`: `audio` (WAV, ≤10MB).
 - Returns `{ transcript, wordsPerMinute, pauseCount, avgPauseSec, fillerWordCount, fillerDensity, fluencyScore }`.
@@ -107,13 +128,25 @@ PDF upload → parse + store (unchanged contract, hardened validation).
 
 ## LLM Provider Interface (`services/llm/types.ts`)
 ```ts
+interface EmbeddingResult {
+  embedding: number[];
+  model: string;
+}
+
 interface ILLMProvider {
   chat(options: ChatOptions): Promise<string>;           // non-streaming
   stream?(options: ChatOptions): AsyncIterable<string>;  // streaming (future)
-  embed(text: string): Promise<number[]>;
+  embed(text: string): Promise<EmbeddingResult>;
   ping(): Promise<boolean>;                              // health check
 }
+
+class LLMError extends Error {
+  kind: "unreachable" | "timeout" | "response" | "config";
+}
 ```
-`createLLMProvider()` returns `OllamaProvider` (env-driven model). Future engines
-(`VllmProvider`, `LmStudioProvider`) implement the same interface; only the
-factory changes.
+`createLLMProvider()` returns `OllamaProvider` (env-driven model, default
+`qwen3:8b`). `createEmbeddingProvider()` returns an embedding-only provider
+(default `nomic-embed-text`). Future engines (`VllmProvider`, `LmStudioProvider`)
+implement the same interface; only the factory changes. When Ollama is
+unreachable, calls throw `LLMError(kind: "unreachable")` — there is deliberately
+no silent cloud fallback.

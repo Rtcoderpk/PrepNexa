@@ -51,7 +51,10 @@ Replace Gemini with a self-hosted Ollama abstraction.
 - [x] Env validation wiring, CSP for WASM, injection guard tuning.
 - [x] `Dockerfile`, `docker-compose.yml` (Next + pythonai + Ollama), PM2 pythonai config, nginx.conf update.
 - [x] `README.md` rewrite (Ollama setup, no cloud keys), `.env.example` update.
-- [ ] Final typecheck + build + end-to-end verification.
+- [x] Unit test suite (Vitest + pytest) covering speech metrics, vision metrics, semantic scoring, dashboard bucketing, feedback JSON parsing, telemetry clamps.
+- [x] GitHub Actions CI (typecheck + lint + tests + build on push/PR).
+- [x] Typecheck + build clean; production server smoke-tested.
+- [ ] Live end-to-end interview against a running Ollama + pythonai + Redis stack (requires those services; e.g. `docker compose up -d --build`).
 
 ## Phase 9 — Coding interviews (future seam)
 Architecture already accommodates; UI ships later (Monaco, code execution, AI review).
