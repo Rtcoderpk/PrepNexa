@@ -111,6 +111,15 @@ The compose file sets `RATE_LIMIT_STORE=redis` and `FEEDBACK_QUEUE=redis` automa
 | `npm run build` | Production build |
 | `npm start` | Run the production build |
 | `npm run typecheck` | TypeScript type check |
+| `npm run lint` | ESLint (next/core-web-vitals) |
+| `npm test` | Vitest unit tests |
+| `npm run test:python` | pytest for the pythonai service |
+
+## CI/CD
+
+A [GitHub Actions workflow](./.github/workflows/ci.yml) runs on every push/PR:
+typecheck, lint, Vitest suite, production build, and the pythonai pytest suite
+(pure functions only — no heavy ML deps, so it stays fast).
 
 ## API Routes
 
