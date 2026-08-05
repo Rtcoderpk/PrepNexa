@@ -1,28 +1,29 @@
 # InterviewIQ AI
 
-A production-ready, full-stack AI mock interview platform. Practice real interviews with **Alex**, an AI interviewer that feels like a senior hiring manager at Google, Microsoft, or Amazon.
+A production-ready, full-stack AI mock interview platform. Practice real interviews with **Alex**, an AI interviewer that feels like a senior hiring manager at Google, Microsoft, or Amazon. The entire AI stack runs **self-hosted** — no cloud LLM keys.
 
 ## Features
 
 - **Authentication** — email/password signup, login, forgot password, session persistence, protected routes via middleware
-- **Dashboard** — previous interviews, average score, completion stats, improvement graph, recent activity
+- **Dashboard** — average score, completion stats, score trend, **skill radar**, **confidence trajectory**, **weekly/monthly practice volume**, resume history
 - **Setup** — pick a job role or paste a job description, optionally upload a resume (PDF parsed via `pdf-parse`, stored in Supabase Storage + DB)
 - **Live Interview** — ChatGPT-like chat with animated bubbles, timestamps, typing indicator, auto-scroll
-- **Voice** — answer with speech recognition (Web Speech API) and hear Alex speak via speech synthesis (graceful fallback if unsupported)
-- **AI Interviewer Alex** — powered by Google Gemini 2.5 Flash, remembers context, asks 5 progressive questions across introduction/technical/behavioral/scenario/problem-solving, one follow-up on weak answers, never repeats questions
-- **Feedback** — score /10 with a circular progress ring, summary, strength cards, improvement cards, per-question notes, downloadable report (HTML → print to PDF), shareable results
+- **Voice** — answer with your mic (Faster Whisper transcription via the pythonai service) and hear Alex speak (speech synthesis)
+- **Computer Vision** — live camera confidence + eye-contact analysis runs entirely in the browser (MediaPipe WASM); no video ever leaves the device
+- **AI Interviewer Alex** — powered by **Ollama (default `qwen3:8b`)**, remembers context, asks 5 progressive questions across introduction/technical/behavioral/scenario/problem-solving, one follow-up on weak answers, never repeats questions
+- **Feedback** — full 8-dimension report: score ring, skill breakdown, strengths/improvements, STAR evaluation, hiring recommendation, improvement roadmap, per-question notes, downloadable PDF, shareable results
 
 ## Tech Stack
 
-Next.js 15 (App Router) · TypeScript · Tailwind CSS · shadcn/ui · Framer Motion · Lucide Icons · React Hook Form · Zod · TanStack Query · Recharts · Supabase (Auth + PostgreSQL + Storage) · Google Gemini 2.5 Flash · pdf-parse
+Next.js 15 (App Router) · TypeScript · Tailwind CSS · shadcn/ui · Framer Motion · Lucide Icons · React Hook Form · Zod · TanStack Query · Recharts · Supabase (Auth + PostgreSQL + Storage) · **Ollama** (local LLM + embeddings) · **pythonai** (FastAPI + Faster Whisper + sentence-transformers) · MediaPipe (in-browser vision) · Redis (optional: rate limiting + feedback queue)
 
 ## Getting Started
 
 ### 1. Prerequisites
 
-- Node.js 20+
+- Node.js 20+ (22 LTS recommended)
 - A Supabase project (free tier is fine)
-- A Google Gemini API key (https://aistudio.google.com)
+- **Ollama** running locally (see below) — or use `docker-compose` which runs everything
 
 ### 2. Install
 
@@ -30,28 +31,77 @@ Next.js 15 (App Router) · TypeScript · Tailwind CSS · shadcn/ui · Framer Mot
 npm install
 ```
 
-### 3. Environment variables
+### 3. Ollama (local LLM)
+
+Install from https://ollama.com, then pull the models:
+
+```bash
+ollama pull qwen3:8b
+ollama pull nomic-embed-text
+```
+
+Start the server (usually auto-starts as a service):
+
+```bash
+ollama serve
+```
+
+> The interviewer falls back to a graceful "Ollama unavailable" message if the server isn't reachable, so the app still boots without it.
+
+### 4. pythonai (speech + semantic analysis)
+
+```bash
+cd pythonai
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+First run downloads the Faster Whisper + embedding models (a few hundred MB). The interview works without it (falls back to Web Speech API) but voice/vision scoring needs it.
+
+### 5. Environment variables
 
 Copy `.env.example` to `.env.local` and fill in your values:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-GEMINI_API_KEY=...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:8b
+PYTHONAI_URL=http://localhost:8000
 ```
 
-### 4. Database
+### 6. Database
 
-Open the Supabase SQL Editor and run the entire contents of [`supabase/schema.sql`](./supabase/schema.sql). This creates the `profiles`, `resumes` storage bucket, `resume_files`, `interviews`, and `interview_questions` tables, plus all Row Level Security policies.
+Open the Supabase SQL Editor and run the entire contents of [`supabase/schema.sql`](./supabase/schema.sql). This creates `profiles`, `resumes`, `interviews`, `interview_questions`, `speech_metrics`, `vision_metrics`, `feedback_reports`, plus all Row Level Security policies.
 
-### 5. Run
+### 7. Run
 
 ```bash
 npm run dev
 ```
 
 Open http://localhost:3000
+
+## Run Everything With Docker (recommended)
+
+A single `docker-compose.yml` orchestrates the full stack: Next.js, pythonai, Ollama (with models pulled on boot), and Redis.
+
+```bash
+cp .env.example .env.local   # fill in Supabase values
+docker compose up -d --build
+```
+
+Services:
+
+| Service  | Port  | Purpose                                        |
+| -------- | ----- | ---------------------------------------------- |
+| next     | 3000  | Next.js app                                    |
+| pythonai | 8000  | Faster Whisper + semantic scoring              |
+| ollama   | 11434 | Local LLM + embeddings                         |
+| redis    | 6379  | Shared rate limiting + feedback queue          |
+
+The compose file sets `RATE_LIMIT_STORE=redis` and `FEEDBACK_QUEUE=redis` automatically, so multi-instance scaling works out of the box.
 
 ## Scripts
 
@@ -69,30 +119,40 @@ Open http://localhost:3000
 | `/api/interview/start` | POST | Create a new interview session |
 | `/api/interview/opening` | POST | Generate & persist the opening question |
 | `/api/interview/respond` | POST | Send an answer, get Alex's next question |
-| `/api/interview/feedback` | POST | Generate the feedback report |
+| `/api/interview/feedback` | POST | Generate the feedback report (inline, or enqueued with `FEEDBACK_QUEUE=redis`) |
+| `/api/feedback-worker` | GET | Drain the feedback queue (cron; requires `FEEDBACK_WORKER_SECRET`) |
+| `/api/analysis/transcribe` | POST | Proxy to pythonai transcription |
+| `/api/analysis/semantic` | POST | Proxy to pythonai semantic scoring |
 | `/api/upload-resume` | POST | Upload + parse a resume PDF |
 
-Server Actions are used for auth, interview start, resume upload, and feedback wherever appropriate. The Gemini API key is only ever read server-side.
+Server Actions handle auth, interview start, resume upload, and feedback. Secrets are only ever read server-side.
 
 ## Security
 
-- Rate limiting on auth, resume upload, interview start, respond, and feedback endpoints
+- Rate limiting on auth, resume upload, interview start, respond, and feedback endpoints (memory or Redis store)
 - Row Level Security on all tables; storage policies scoped to the owner
 - Server-side Zod validation on every input
 - Prompt injection protection on candidate answers
-- Input sanitization, secure headers (CSP-friendly), strict environment variable handling
-- Gemini API key never exposed to the client
+- Input sanitization, secure headers + CSP (MediaPipe WASM allowed), strict environment variable handling
+- MediaPipe models load from a pinned CDN version; vision runs entirely client-side
 
-## Deployment (AWS EC2 + PM2 + Nginx + SSL)
+## Deployment
+
+### Option A — Docker Compose (single host)
+
+```bash
+docker compose up -d --build
+```
+
+Put Nginx in front (see below) for TLS.
+
+### Option B — AWS EC2 + PM2 + Nginx + SSL
 
 1. Push this repo to GitHub and clone it on your EC2 instance.
-2. Install Node.js 20+:
-   ```bash
-   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-   sudo apt-get install -y nodejs
-   ```
+2. Install Node.js 22, Ollama, and Python 3.12 (or use the `pythonai/` venv).
 3. Install PM2 globally: `sudo npm i -g pm2`
-4. Build and start:
+4. Build and start (starts both Next.js and pythonai):
+
    ```bash
    npm install
    npm run build
@@ -100,26 +160,34 @@ Server Actions are used for auth, interview start, resume upload, and feedback w
    pm2 save
    pm2 startup
    ```
+
 5. Install Nginx and copy `nginx.conf` (adjust `server_name`), then:
+
    ```bash
    sudo nginx -t && sudo systemctl reload nginx
    ```
+
 6. Get a Let's Encrypt certificate:
+
    ```bash
    sudo apt-get install -y certbot python3-certbot-nginx
    sudo certbot --nginx -d interviewiq.example.com
    ```
-7. Set your production environment variables in `.env.local` (or via a process manager) and rebuild.
+
+7. Set your production environment variables in `.env.local` (or via the process manager) and rebuild.
+
+> With `FEEDBACK_QUEUE=redis`, the feedback report is generated asynchronously by a worker. The ecosystem file starts a `interviewiq-feedback-drainer` cron app that hits `/api/feedback-worker` every 5 minutes. (On Vercel, `vercel.json` defines the same cron.)
 
 ## Project Structure
 
 ```
 app/          # App Router pages + API routes
-components/   # UI + feature components (auth, dashboard, interview, results, setup)
+components/   # UI + feature components (auth, dashboard, interview, results, setup, vision)
 actions/      # Server Actions
-hooks/        # Speech recognition & synthesis hooks
-lib/          # supabase clients, validation, security, rate limit, utils
-services/     # Gemini, interview logic, resume parsing
+hooks/        # Speech recognition/synthesis, audio recorder, vision metrics
+lib/          # supabase clients, validation, security, rate limit, env, vision math, queue
+services/     # LLM (Ollama) providers/prompts, interview logic, feedback, resume parsing
+pythonai/     # FastAPI service (Faster Whisper transcription + semantic scoring)
 supabase/     # SQL schema + RLS policies
 types/        # TypeScript types
 ```

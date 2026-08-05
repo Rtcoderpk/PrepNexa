@@ -22,28 +22,9 @@ export interface InterviewSetup {
   resumeFileName?: string;
 }
 
-export interface PerQuestionNote {
-  question: string;
-  answer: string;
-  score: number;
-  feedback: string;
-}
-
-export interface InterviewFeedback {
-  overall_score: number;
-  summary: string;
-  strengths: string[];
-  areas_to_improve: string[];
-  per_question_notes: PerQuestionNote[];
-}
-
-export interface InterviewSettings {
-  maxQuestions: number;
-}
-
-export const DEFAULT_INTERVIEW_SETTINGS: InterviewSettings = {
+export const DEFAULT_INTERVIEW_SETTINGS = {
   maxQuestions: 5,
-};
+} as const;
 
 export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
   introduction: "Introduction",

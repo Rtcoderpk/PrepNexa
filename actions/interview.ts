@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { sanitizeInput } from "@/lib/security";
@@ -39,8 +38,9 @@ export async function startInterviewAction(formData: FormData) {
   const resumeFileName = parsed.data.resumeFileName ?? "";
   const hasJobDescription = jobDescription.length > 0;
 
+  let interviewId: string;
   try {
-    const interviewId = await createInterview({
+    interviewId = await createInterview({
       userId: user.id,
       setup: {
         jobRole: sanitizeInput(jobRole),
@@ -49,16 +49,19 @@ export async function startInterviewAction(formData: FormData) {
         resumeFileName,
       },
     });
-    redirect(
-      `/interview/${interviewId}?role=${encodeURIComponent(
-        jobRole ||
-          (hasJobDescription ? "the role described in the job description" : ""),
-      )}`,
-    );
   } catch (error) {
     return {
       error:
         error instanceof Error ? error.message : "Failed to start interview.",
     };
   }
+
+  const roleLabel =
+    jobRole || (hasJobDescription ? "the role described in the job description" : "");
+
+  return {
+    success: true,
+    interviewId,
+    roleLabel,
+  };
 }

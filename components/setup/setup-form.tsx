@@ -54,10 +54,19 @@ export function SetupForm() {
       formData.set("resumeFileName", resume?.fileName ?? "");
 
       const result = await startInterviewAction(formData);
+
       if (result?.error) {
         toast.error(result.error);
+        return;
       }
-      router.refresh();
+
+      if (result?.success && result.interviewId) {
+        const roleQuery = result.roleLabel
+          ? `?role=${encodeURIComponent(result.roleLabel)}`
+          : "";
+        router.push(`/interview/${result.interviewId}${roleQuery}`);
+        return;
+      }
     } catch {
       toast.error("Failed to start the interview. Please try again.");
     } finally {

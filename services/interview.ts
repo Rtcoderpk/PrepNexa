@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import { generateInterviewerResponse } from "@/services/gemini";
+import { createLLMProvider } from "@/services/llm/provider";
+import { buildInterviewerSystemPrompt, COMPLETION_PHRASE } from "@/services/llm/prompts/interviewer";
+import type { LLMMessage } from "@/services/llm/types";
 import {
   DEFAULT_INTERVIEW_SETTINGS,
   type ChatMessage,
@@ -7,8 +9,7 @@ import {
   type QuestionCategory,
 } from "@/types/interview";
 
-export const COMPLETION_PHRASE =
-  "That wraps up our interview — thank you for your time today.";
+export { COMPLETION_PHRASE };
 
 const CATEGORY_ORDER: QuestionCategory[] = [
   "introduction",
@@ -31,6 +32,8 @@ const CATEGORY_PROMPT: Record<QuestionCategory, string> = {
     "Pose an open-ended problem-solving question. Probe their reasoning process.",
 };
 
+const MAX_FOLLOW_UPS = 2;
+
 export function getMaxQuestions(): number {
   return DEFAULT_INTERVIEW_SETTINGS.maxQuestions;
 }
@@ -39,15 +42,15 @@ export function isCompletionMessage(content: string): boolean {
   return content.trim() === COMPLETION_PHRASE;
 }
 
-function buildConversationHistory(messages: ChatMessage[]) {
-  return messages.map((message) => ({
-    role: message.role === "assistant" ? ("model" as const) : ("user" as const),
-    content: message.content,
-  }));
-}
-
 function nextCategory(assistantCount: number): QuestionCategory {
   return CATEGORY_ORDER[assistantCount] ?? "problem_solving";
+}
+
+function toLLMMessages(messages: ChatMessage[]): LLMMessage[] {
+  return messages.map((message) => ({
+    role: message.role === "assistant" ? ("assistant" as const) : ("user" as const),
+    content: message.content,
+  }));
 }
 
 export async function createInterview(params: {
@@ -93,24 +96,33 @@ export async function createInterview(params: {
 export async function generateOpeningQuestion(params: {
   role?: string;
   resumeContext?: string;
+  jobDescription?: string;
   history: ChatMessage[];
   totalQuestions: number;
 }): Promise<{ content: string; category: QuestionCategory }> {
+  const provider = createLLMProvider();
   const category: QuestionCategory = "introduction";
 
-  const content = await generateInterviewerResponse({
-    role: params.role,
-    resumeContext: params.resumeContext,
-    questionsAsked: 0,
-    totalQuestions: params.totalQuestions,
-    history: [
-      ...buildConversationHistory(params.history),
+  const content = await provider.chat({
+    system: buildInterviewerSystemPrompt({
+      role: params.role,
+      resumeContext: params.resumeContext,
+      jobDescription: params.jobDescription,
+      questionsAsked: 0,
+      totalQuestions: params.totalQuestions,
+      questionBank: [],
+      maxFollowUps: MAX_FOLLOW_UPS,
+    }),
+    messages: [
+      ...toLLMMessages(params.history),
       {
         role: "user",
         content:
           "[Interview protocol note] This is the very start of the interview. Introduce yourself as Alex and ask the candidate to introduce themselves. Do not answer for them.",
       },
     ],
+    temperature: 0.7,
+    maxOutputTokens: 300,
   });
 
   return { content, category };
@@ -119,6 +131,7 @@ export async function generateOpeningQuestion(params: {
 export async function generateNextQuestion(params: {
   role?: string;
   resumeContext?: string;
+  jobDescription?: string;
   history: ChatMessage[];
   latestAnswer?: string;
   isFollowUp?: boolean;
@@ -127,6 +140,7 @@ export async function generateNextQuestion(params: {
   category: QuestionCategory;
   isFollowUp: boolean;
 }> {
+  const provider = createLLMProvider();
   const assistantCount = params.history.filter(
     (m) => m.role === "assistant",
   ).length;
@@ -143,13 +157,24 @@ export async function generateNextQuestion(params: {
     ? "\nThis is a follow-up. Do not move to a new topic — probe deeper into the candidate's last answer, then return to the main flow."
     : "";
 
-  const content = await generateInterviewerResponse({
-    role: params.role,
-    resumeContext: params.resumeContext,
-    questionsAsked: assistantCount,
-    totalQuestions: getMaxQuestions(),
-    history: [
-      ...buildConversationHistory(params.history),
+  // Repetition guard: collect every question Alex has asked so far.
+  const questionBank = params.history
+    .filter((m) => m.role === "assistant")
+    .map((m) => m.content)
+    .slice(0, 12);
+
+  const content = await provider.chat({
+    system: buildInterviewerSystemPrompt({
+      role: params.role,
+      resumeContext: params.resumeContext,
+      jobDescription: params.jobDescription,
+      questionsAsked: assistantCount,
+      totalQuestions: getMaxQuestions(),
+      questionBank,
+      maxFollowUps: MAX_FOLLOW_UPS,
+    }),
+    messages: [
+      ...toLLMMessages(params.history),
       ...(params.latestAnswer
         ? [{ role: "user" as const, content: params.latestAnswer }]
         : []),
@@ -160,6 +185,8 @@ export async function generateNextQuestion(params: {
         }.`,
       },
     ],
+    temperature: 0.7,
+    maxOutputTokens: 300,
   });
 
   return {

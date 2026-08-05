@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
-import { parseFeedbackJson } from "@/lib/feedback";
-import { generateFeedback } from "@/services/gemini";
-import { feedbackSchema } from "@/lib/validations";
+import { generateFeedback, saveFeedback } from "@/services/feedback";
+import {
+  enqueueFeedback,
+  isFeedbackQueued,
+} from "@/lib/feedback-queue";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -53,7 +55,7 @@ export async function POST(request: NextRequest) {
 
   const { data: interview, error: interviewError } = await supabase
     .from("interviews")
-    .select("id, user_id, job_role, status")
+    .select("id, user_id, job_role, resume_file_id, status")
     .eq("id", parsed.data.interviewId)
     .maybeSingle();
 
@@ -69,74 +71,63 @@ export async function POST(request: NextRequest) {
 
   const role = interview.job_role ?? "Senior Software Engineer";
 
-  const conversationHistory = parsed.data.history.map((m) => ({
-    role: m.role === "assistant" ? ("model" as const) : ("user" as const),
-    content: m.content,
-  }));
-
-  let result: unknown = null;
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const raw = await generateFeedback({
-        role,
-        history: conversationHistory,
-      });
-      const feedback = parseFeedbackJson(raw);
-      const validated = feedbackSchema.safeParse(feedback);
-      if (validated.success) {
-        result = validated.data;
-        break;
-      }
-      lastError = new Error("Feedback failed validation");
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Feedback failed");
-    }
+  let resumeContext: string | undefined;
+  if (interview.resume_file_id) {
+    const { data: resumeFile } = await supabase
+      .from("resume_files")
+      .select("extracted_text")
+      .eq("id", interview.resume_file_id)
+      .maybeSingle();
+    resumeContext = resumeFile?.extracted_text ?? undefined;
   }
 
-  if (!result) {
+  const history: Array<{ role: "user" | "assistant"; content: string }> =
+    parsed.data.history.map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content,
+    }));
+
+  // Queue seam: when FEEDBACK_QUEUE=redis, enqueue and return immediately; the
+  // worker drains the queue and the results page reflects completion.
+  if (isFeedbackQueued()) {
+    const result = await enqueueFeedback({
+      interviewId: interview.id,
+      userId: user.id,
+      role,
+      resumeContext,
+      history,
+    });
+
+    if (result.queued) {
+      return NextResponse.json({
+        queued: true,
+        jobId: result.jobId,
+      });
+    }
+    // Fall through to inline generation if Redis is unavailable.
+  }
+
+  try {
+    const report = await generateFeedback({
+      role,
+      resumeContext,
+      history,
+    });
+
+    await saveFeedback({
+      interviewId: interview.id,
+      userId: user.id,
+      report,
+    });
+
+    return NextResponse.json({ feedback: report });
+  } catch (error) {
     return NextResponse.json(
-      { error: lastError?.message ?? "Failed to generate feedback" },
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to generate feedback",
+      },
       { status: 500 },
     );
   }
-
-  const feedback = result as z.infer<typeof feedbackSchema>;
-
-  const { data: storedQuestions } = await supabase
-    .from("interview_questions")
-    .select("id, question")
-    .eq("interview_id", interview.id)
-    .order("created_at", { ascending: true });
-
-  if (storedQuestions) {
-    for (const note of feedback.per_question_notes) {
-      const match = storedQuestions.find(
-        (q) =>
-          q.question.trim().toLowerCase() ===
-            note.question.trim().toLowerCase() && note.score !== undefined,
-      );
-      if (match) {
-        await supabase
-          .from("interview_questions")
-          .update({ score: note.score, feedback: note.feedback })
-          .eq("id", match.id);
-      }
-    }
-  }
-
-  await supabase
-    .from("interviews")
-    .update({
-      status: "completed",
-      completed_at: new Date().toISOString(),
-      overall_score: Math.min(10, Math.max(0, Math.round(feedback.overall_score))),
-      summary: feedback.summary,
-      strengths: feedback.strengths,
-      areas_to_improve: feedback.areas_to_improve,
-    })
-    .eq("id", interview.id);
-
-  return NextResponse.json({ feedback });
 }

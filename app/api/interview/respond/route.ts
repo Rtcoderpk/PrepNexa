@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { sanitizeAnswer } from "@/lib/security";
-import { respondInterviewSchema } from "@/lib/validations";
+import { respondInterviewSchema, respondTelemetrySchema } from "@/lib/validations";
 import { generateNextQuestion, isCompletionMessage } from "@/services/interview";
+import {
+  persistAnswerTelemetry,
+  clampSpeech,
+  clampVision,
+} from "@/services/telemetry";
 
 export const runtime = "nodejs";
 
@@ -36,6 +41,19 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.errors[0]?.message ?? "Invalid input" },
+      { status: 400 },
+    );
+  }
+
+  // Optional per-answer telemetry (vision + speech). Invalidly-shaped metrics
+  // are rejected rather than silently dropped.
+  const bodyObject = (body as Record<string, unknown>) ?? {};
+  const telemetryParsed = respondTelemetrySchema.safeParse(
+    bodyObject.telemetry ?? {},
+  );
+  if (!telemetryParsed.success) {
+    return NextResponse.json(
+      { error: "Invalid analysis payload" },
       { status: 400 },
     );
   }
@@ -95,6 +113,16 @@ export async function POST(request: NextRequest) {
       .from("interview_questions")
       .update({ answer })
       .eq("id", lastQuestion.id);
+
+    // Persist the analysis for the question just answered.
+    const { speech, vision } = telemetryParsed.data;
+    if (speech || vision) {
+      await persistAnswerTelemetry({
+        questionId: lastQuestion.id,
+        speech: speech ? clampSpeech(speech) : undefined,
+        vision: vision ? clampVision(vision) : undefined,
+      });
+    }
   }
 
   const previousMessages = Array.isArray(body)

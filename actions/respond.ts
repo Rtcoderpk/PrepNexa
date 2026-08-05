@@ -3,8 +3,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { sanitizeAnswer } from "@/lib/security";
-import { respondInterviewSchema } from "@/lib/validations";
+import { respondInterviewSchema, respondTelemetrySchema } from "@/lib/validations";
 import { generateNextQuestion, isCompletionMessage } from "@/services/interview";
+import { persistAnswerTelemetry, clampSpeech, clampVision } from "@/services/telemetry";
+import { semanticEvaluator, toTenScale } from "@/services/semantic-eval";
 import type { ChatMessage, QuestionCategory } from "@/types/interview";
 
 export interface RespondResult {
@@ -24,6 +26,8 @@ export async function respondAction(params: {
     category?: string;
     isFollowUp?: boolean;
   }>;
+  speech?: unknown;
+  vision?: unknown;
 }): Promise<RespondResult> {
   const supabase = await createClient();
 
@@ -44,6 +48,14 @@ export async function respondAction(params: {
   });
   if (!parsed.success) {
     throw new Error(parsed.error.errors[0]?.message ?? "Invalid answer");
+  }
+
+  const telemetryParsed = respondTelemetrySchema.safeParse({
+    speech: params.speech,
+    vision: params.vision,
+  });
+  if (!telemetryParsed.success) {
+    throw new Error("Invalid analysis payload");
   }
 
   const { data: interview, error: interviewError } = await supabase
@@ -78,7 +90,7 @@ export async function respondAction(params: {
   // Persist the user's answer against the last asked question
   const { data: lastQuestion } = await supabase
     .from("interview_questions")
-    .select("id")
+    .select("id, question")
     .eq("interview_id", interview.id)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -89,6 +101,15 @@ export async function respondAction(params: {
       .from("interview_questions")
       .update({ answer })
       .eq("id", lastQuestion.id);
+
+    const { speech, vision } = telemetryParsed.data;
+    if (speech || vision) {
+      await persistAnswerTelemetry({
+        questionId: lastQuestion.id,
+        speech: speech ? clampSpeech(speech) : undefined,
+        vision: vision ? clampVision(vision) : undefined,
+      });
+    }
   }
 
   const assistantCount = params.previousMessages.filter(
@@ -107,13 +128,28 @@ export async function respondAction(params: {
     category: m.category as QuestionCategory | undefined,
   }));
 
-  const generated = await generateNextQuestion({
-    role: interview.job_role ?? undefined,
-    resumeContext,
-    history,
-    latestAnswer: answer,
-    isFollowUp,
-  });
+  // Score the answer semantically in parallel with generating the next question.
+  // Never blocks or fails the main flow — on any error we simply skip scoring.
+  const semanticScorePromise = lastQuestion
+    ? scoreAnswerSemantically({
+        questionId: lastQuestion.id,
+        question: lastQuestion.question,
+        answer,
+        role: interview.job_role ?? undefined,
+        resumeContext,
+      })
+    : Promise.resolve();
+
+  const [generated] = await Promise.all([
+    generateNextQuestion({
+      role: interview.job_role ?? undefined,
+      resumeContext,
+      history,
+      latestAnswer: answer,
+      isFollowUp,
+    }),
+    semanticScorePromise,
+  ]);
 
   const isComplete = isCompletionMessage(generated.content);
 
@@ -171,4 +207,44 @@ function decideFollowUp(
     );
 
   return isWeak && assistantCount < 8;
+}
+
+/**
+ * Best-effort semantic scoring of an answer against its question. Persists the
+ * blended score + LLM feedback onto the answered question row. Never throws:
+ * scoring is a live preview only — the authoritative feedback pass overwrites
+ * per-question scores at interview end.
+ */
+async function scoreAnswerSemantically(params: {
+  questionId: string;
+  question: string;
+  answer: string;
+  role?: string;
+  resumeContext?: string;
+}): Promise<void> {
+  try {
+    const evaluation = await semanticEvaluator.evaluate({
+      question: params.question,
+      answer: params.answer,
+      role: params.role,
+      resumeContext: params.resumeContext,
+    });
+
+    const feedbackText =
+      evaluation.feedback ||
+      (evaluation.offline
+        ? "Scored from LLM reasoning (semantic analysis offline)."
+        : "Semantic score.");
+
+    const supabase = await createClient();
+    await supabase
+      .from("interview_questions")
+      .update({
+        score: toTenScale(evaluation.blendedScore),
+        feedback: feedbackText.slice(0, 1000),
+      })
+      .eq("id", params.questionId);
+  } catch {
+    // Scoring is non-critical — the interview proceeds without it.
+  }
 }

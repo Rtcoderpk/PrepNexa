@@ -5,6 +5,10 @@ import { getDashboardStats } from "@/lib/dashboard";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { ScoreChart } from "@/components/dashboard/score-chart";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
+import { SkillRadar } from "@/components/dashboard/skill-radar";
+import { ConfidenceTrajectory } from "@/components/dashboard/confidence-trajectory";
+import { WeeklyTrend } from "@/components/dashboard/weekly-trend";
+import { ResumeHistory } from "@/components/dashboard/resume-history";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
@@ -43,6 +47,16 @@ export default async function DashboardPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {stats && <ScoreChart stats={stats} />}
         {stats && <RecentActivity stats={stats} />}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {stats && <SkillRadar stats={stats} />}
+        {stats && <ConfidenceTrajectory stats={stats} />}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {stats && <WeeklyTrend stats={stats} />}
+        {stats && <ResumeHistory stats={stats} />}
       </div>
 
       {!stats && (
