@@ -38,6 +38,9 @@ export function analyzeTranscriptMetrics(params: {
 
   const lower = transcript.toLowerCase();
   const words = transcript.trim().split(/\s+/).filter(Boolean);
+  // Lowercased tokens for filler matching — the raw tokens keep original case
+  // for word counting, but fillers are case-insensitive ("Um," == "um").
+  const lowerWords = words.map((w) => w.toLowerCase());
   const wordCount = words.length;
 
   // Count filler-word occurrences (token-level and common multi-word phrases).
@@ -49,10 +52,11 @@ export function analyzeTranscriptMetrics(params: {
       fillerCount += (lower.match(re) ?? []).length;
     } else if (
       /^[a-z]+$/.test(filler) &&
-      words.some((w) => w.replace(/[^a-z]/g, "") === filler)
+      lowerWords.some((w) => w.replace(/[^a-z]/g, "") === filler)
     ) {
-      fillerCount += words.filter((w) => w.replace(/[^a-z]/g, "") === filler)
-        .length;
+      fillerCount += lowerWords.filter(
+        (w) => w.replace(/[^a-z]/g, "") === filler,
+      ).length;
     }
   }
 
