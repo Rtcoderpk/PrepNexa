@@ -68,7 +68,7 @@ order:
    `speech_metrics`, `vision_metrics`, `feedback_reports`).
 2. [`supabase/migration_prepnexa.sql`](./supabase/migration_prepnexa.sql) —
    plan + usage layer: `profiles` columns, `subscriptions`, `resume_analyses`,
-   `ai_usage_logs`, `usage_limits`, `provider_health`.
+   `ai_usage_logs`, `provider_health`.
 3. [`supabase/migration_missing_tables.sql`](./supabase/migration_missing_tables.sql) —
    for a **live project upgraded from an earlier version**: adds the
    `interviews` score columns and the `speech_metrics` / `vision_metrics` /

@@ -1,4 +1,5 @@
 import type { ProviderId } from "@/lib/ai/ai-config";
+import { persistProviderHealth } from "@/lib/usage";
 
 /**
  * In-memory provider health tracking. Cooldowns prevent routing traffic to a
@@ -46,6 +47,7 @@ export function recordSuccess(providerId: string, latencyMs: number): void {
   else entry.averageLatencyMs = Math.round(
     (entry.averageLatencyMs + latencyMs) / 2,
   );
+  void persistHealth(entry);
 }
 
 export function recordFailure(
@@ -65,6 +67,19 @@ export function recordFailure(
     // Transient failures put the provider on a short cooldown too.
     entry.cooldownUntil = Date.now() + COOLDOWN_MS;
   }
+  void persistHealth(entry);
+}
+
+/** Fire-and-forget DB persistence of the in-memory health snapshot. */
+function persistHealth(entry: ProviderHealth): void {
+  void persistProviderHealth({
+    providerId: entry.providerId,
+    successCount: entry.successCount,
+    failureCount: entry.failureCount,
+    rateLimitedCount: entry.rateLimitedCount,
+    averageLatencyMs: entry.averageLatencyMs,
+    lastFailureAt: entry.lastFailureAt,
+  });
 }
 
 /** Whether a provider is currently cooled down. */

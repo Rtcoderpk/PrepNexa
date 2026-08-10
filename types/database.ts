@@ -283,39 +283,6 @@ export interface Database {
         Update: Record<string, never>;
         Relationships: [];
       };
-      usage_limits: {
-        Row: {
-          id: string;
-          user_id: string;
-          free_interview_used: boolean;
-          resume_analysis_count: number;
-          daily_ai_requests: number;
-          monthly_ai_requests: number;
-          last_request_at: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          free_interview_used?: boolean;
-          resume_analysis_count?: number;
-          daily_ai_requests?: number;
-          monthly_ai_requests?: number;
-          last_request_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          free_interview_used?: boolean;
-          resume_analysis_count?: number;
-          daily_ai_requests?: number;
-          monthly_ai_requests?: number;
-          last_request_at?: string | null;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
       subscriptions: {
         Row: {
           id: string;

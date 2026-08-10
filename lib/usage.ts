@@ -165,6 +165,46 @@ export async function consumeResumeAnalysis(
   return { count: newCount, allowed: true };
 }
 
+export interface ProviderHealthSnapshot {
+  providerId: string;
+  successCount: number;
+  failureCount: number;
+  rateLimitedCount: number;
+  averageLatencyMs: number | null;
+  lastFailureAt: number | null;
+}
+
+/**
+ * Persists a provider's health snapshot to the `provider_health` table.
+ * Fire-and-forget: failures are swallowed so telemetry never breaks the request
+ * path. Uses the admin client because the table is RLS-restricted to server
+ * contexts (policy `using (false)` for end users).
+ */
+export async function persistProviderHealth(
+  snapshot: ProviderHealthSnapshot,
+): Promise<void> {
+  try {
+    const admin = tryGetAdmin();
+    if (!admin) return; // No service-role key configured — telemetry is optional.
+    await admin.from("provider_health").upsert(
+      {
+        provider: snapshot.providerId,
+        success_count: snapshot.successCount,
+        failure_count: snapshot.failureCount,
+        rate_limited_count: snapshot.rateLimitedCount,
+        average_latency_ms: snapshot.averageLatencyMs,
+        last_failure_at: snapshot.lastFailureAt
+          ? new Date(snapshot.lastFailureAt).toISOString()
+          : null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "provider" },
+    );
+  } catch {
+    // Non-critical telemetry — never fail the request.
+  }
+}
+
 /**
  * Records an AI request for cost control + abuse monitoring. Fire-and-forget —
  * failures are swallowed so accounting never breaks the request path. Uses the

@@ -196,12 +196,12 @@ Apply in the Supabase SQL Editor in this order:
 1. `supabase/schema.sql` — base schema.
 2. `supabase/migration_prepnexa.sql` — plan + usage layer
    (`profiles` columns, `subscriptions`, `resume_analyses`, `ai_usage_logs`,
-   `usage_limits`, `provider_health`).
+   `provider_health`).
 3. `supabase/migration_missing_tables.sql` — **only needed when upgrading a live
    project** from the pre-PrepNexa schema: adds `interviews` score columns plus
    `speech_metrics` / `vision_metrics` / `feedback_reports` if absent.
 4. `supabase/migration_safepay_payments.sql` — `payment_transactions` ledger.
 
-Note: `usage_limits` and `provider_health` are forward-looking seams — no code
-writes them yet (usage is enforced via `profiles` + `subscriptions`; provider
-health is tracked in-memory at runtime).
+Note: `provider_health` is written by the AI router (`lib/ai/provider-health.ts`
+persists in-memory snapshots via `lib/usage.ts`). Usage limits are enforced via
+`profiles` + `subscriptions`; there is no `usage_limits` table.
