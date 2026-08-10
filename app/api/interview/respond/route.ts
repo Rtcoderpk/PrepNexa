@@ -9,6 +9,7 @@ import {
   clampSpeech,
   clampVision,
 } from "@/services/telemetry";
+import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
 
 export const runtime = "nodejs";
 
@@ -195,8 +196,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Failed to get a response.",
+        error: friendlyAIErrorMessage(error),
       },
       { status: 500 },
     );

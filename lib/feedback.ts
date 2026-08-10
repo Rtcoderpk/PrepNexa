@@ -7,7 +7,7 @@ import {
 /**
  * Parses raw LLM output into a validated feedback report.
  *
- * Local models (Qwen3) sometimes wrap JSON in markdown fences or emit trailing
+ * Cloud models sometimes wrap JSON in markdown fences or emit trailing
  * commentary despite being asked not to. We try, in order:
  *   1. exact JSON.parse
  *   2. first fenced ```json block

@@ -3,5 +3,4 @@
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test-project.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "test-anon-key";
 process.env.NEXT_PUBLIC_APP_URL ??= "http://localhost:3000";
-process.env.OLLAMA_URL ??= "http://localhost:11434";
 process.env.PYTHONAI_URL ??= "http://localhost:8000";

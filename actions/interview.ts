@@ -5,6 +5,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { sanitizeInput } from "@/lib/security";
 import { startInterviewSchema } from "@/lib/validations";
 import { createInterview } from "@/services/interview";
+import { canUserStartInterview, consumeFreeInterview } from "@/lib/usage";
 
 export async function startInterviewAction(formData: FormData) {
   const supabase = await createClient();
@@ -18,6 +19,14 @@ export async function startInterviewAction(formData: FormData) {
 
   if (!rateLimit(`start:${user.id}`)) {
     return { error: "Too many requests. Please try again later." };
+  }
+
+  // Server-side usage enforcement: free users get exactly one interview.
+  const gate = await canUserStartInterview(user.id);
+  if (!gate.allowed) {
+    return {
+      error: "You've used your free interview. Upgrade to PrepNexa Pro to keep practicing.",
+    };
   }
 
   const raw = {
@@ -54,6 +63,14 @@ export async function startInterviewAction(formData: FormData) {
       error:
         error instanceof Error ? error.message : "Failed to start interview.",
     };
+  }
+
+  // Consume the free interview on first successful start. Premium users are
+  // unaffected (they bypass the free-quota path entirely).
+  try {
+    await consumeFreeInterview(user.id);
+  } catch {
+    // Never block interview start on quota bookkeeping.
   }
 
   const roleLabel =

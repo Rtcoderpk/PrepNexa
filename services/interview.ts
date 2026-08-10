@@ -104,6 +104,7 @@ export async function generateOpeningQuestion(params: {
   const category: QuestionCategory = "introduction";
 
   const content = await provider.chat({
+    task: "interview_question",
     system: buildInterviewerSystemPrompt({
       role: params.role,
       resumeContext: params.resumeContext,
@@ -164,6 +165,7 @@ export async function generateNextQuestion(params: {
     .slice(0, 12);
 
   const content = await provider.chat({
+    task: "interview_question",
     system: buildInterviewerSystemPrompt({
       role: params.role,
       resumeContext: params.resumeContext,

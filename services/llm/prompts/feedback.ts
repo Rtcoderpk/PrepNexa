@@ -18,8 +18,8 @@ export interface FeedbackPromptParams {
 }
 
 /**
- * Feedback prompt tuned for local models: the model must emit ONLY a JSON
- * object, no markdown, no preamble. Schema mirrors types/feedback.ts.
+ * Feedback prompt: the model must emit ONLY a JSON object, no markdown, no
+ * preamble. Schema mirrors types/feedback.ts.
  */
 export function buildFeedbackPrompt(params: FeedbackPromptParams): string {
   const { role = "Senior Software Engineer", resumeContext, history, telemetry } = params;

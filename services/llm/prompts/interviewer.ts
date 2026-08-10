@@ -15,8 +15,8 @@ const COMPLETION_PHRASE =
   "That wraps up our interview — thank you for your time today.";
 
 /**
- * Builds the interviewer system prompt. Written for local models (Qwen3):
- * explicit, structured instructions, no markdown fences, no roleplay ambiguity.
+ * Builds the interviewer system prompt. Cloud models: explicit, structured
+ * instructions, no markdown fences, no roleplay ambiguity.
  */
 export function buildInterviewerSystemPrompt(
   params: InterviewerPromptParams,

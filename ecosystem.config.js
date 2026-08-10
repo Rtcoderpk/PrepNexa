@@ -1,10 +1,11 @@
-// PM2 ecosystem file for production deployment on AWS EC2.
+// PM2 ecosystem file for production deployment on a single host.
+// The app is cloud-based (Supabase + cloud AI APIs); no local AI services.
 // Usage: pm2 start ecosystem.config.js
 
 module.exports = {
   apps: [
     {
-      name: "interviewiq-ai",
+      name: "prepnexa",
       script: "node_modules/next/dist/bin/next",
       args: "start -p 3000",
       cwd: __dirname,
@@ -19,22 +20,8 @@ module.exports = {
       watch: false,
     },
     {
-      name: "interviewiq-pythonai",
-      cwd: `${__dirname}/pythonai`,
-      script: "uvicorn",
-      args: "app.main:app --host 0.0.0.0 --port 8000 --workers 1",
-      interpreter: "python3",
-      autorestart: true,
-      max_memory_restart: "4G",
-      env: {
-        PYTHONUNBUFFERED: "1",
-      },
-      time: true,
-      watch: false,
-    },
-    {
       // Drains the Redis feedback queue every 5 minutes when FEEDBACK_QUEUE=redis.
-      name: "interviewiq-feedback-drainer",
+      name: "prepnexa-feedback-drainer",
       script: `${__dirname}/scripts/drain-feedback.js`,
       interpreter: "node",
       autorestart: false,

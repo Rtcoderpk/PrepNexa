@@ -36,6 +36,7 @@ export async function generateFeedback(params: {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       const raw = await provider.chat({
+        task: "interview_feedback",
         messages: [
           {
             role: "user",

@@ -3,15 +3,20 @@
  * Fails fast (throws) when required configuration is missing or malformed
  * so the app never runs in a broken state. Optional values are normalised
  * to safe defaults.
+ *
+ * AI keys are read server-side ONLY — never exposed to the browser.
  */
 
 export interface Env {
   supabaseUrl: string;
   supabaseAnonKey: string;
   appUrl: string;
-  ollamaUrl: string;
-  ollamaModel: string;
-  ollamaEmbeddingModel: string;
+  // Cloud AI providers (server-side only). At least one must be configured.
+  groqApiKey: string | null;
+  geminiApiKey: string | null;
+  cloudflareApiToken: string | null;
+  cloudflareAccountId: string | null;
+  openrouterApiKey: string | null;
   pythonaiUrl: string;
   pythonaiTimeoutMs: number;
   rateLimitStore: "memory" | "redis";
@@ -33,6 +38,12 @@ function required(name: string): string {
 function optional(name: string, fallback: string): string {
   const value = process.env[name];
   if (!value || !value.trim()) return fallback;
+  return value.trim();
+}
+
+function optionalNullable(name: string): string | null {
+  const value = process.env[name];
+  if (!value || !value.trim()) return null;
   return value.trim();
 }
 
@@ -60,10 +71,6 @@ export function getEnv(): Env {
   const supabaseUrl = required("NEXT_PUBLIC_SUPABASE_URL");
   const supabaseAnonKey = required("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
-  const ollamaUrl = parseUrl(
-    optional("OLLAMA_URL", "http://localhost:11434"),
-    "OLLAMA_URL",
-  );
   const pythonaiUrl = parseUrl(
     optional("PYTHONAI_URL", "http://localhost:8000"),
     "PYTHONAI_URL",
@@ -93,9 +100,11 @@ export function getEnv(): Env {
       optional("NEXT_PUBLIC_APP_URL", "http://localhost:3000"),
       "NEXT_PUBLIC_APP_URL",
     ),
-    ollamaUrl,
-    ollamaModel: optional("OLLAMA_MODEL", "qwen3:8b"),
-    ollamaEmbeddingModel: optional("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"),
+    groqApiKey: optionalNullable("GROQ_API_KEY"),
+    geminiApiKey: optionalNullable("GEMINI_API_KEY"),
+    cloudflareApiToken: optionalNullable("CLOUDFLARE_API_TOKEN"),
+    cloudflareAccountId: optionalNullable("CLOUDFLARE_ACCOUNT_ID"),
+    openrouterApiKey: optionalNullable("OPENROUTER_API_KEY"),
     pythonaiUrl,
     pythonaiTimeoutMs: parseIntRange("PYTHONAI_TIMEOUT_MS", 60_000, 1_000, 300_000),
     rateLimitStore: store,

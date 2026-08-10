@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { generateOpeningQuestion } from "@/services/interview";
+import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -126,10 +127,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to start the interview.",
+        error: friendlyAIErrorMessage(error),
       },
       { status: 500 },
     );

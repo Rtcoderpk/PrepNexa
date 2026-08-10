@@ -7,6 +7,7 @@ import { respondInterviewSchema, respondTelemetrySchema } from "@/lib/validation
 import { generateNextQuestion, isCompletionMessage } from "@/services/interview";
 import { persistAnswerTelemetry, clampSpeech, clampVision } from "@/services/telemetry";
 import { semanticEvaluator, toTenScale } from "@/services/semantic-eval";
+import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
 import type { ChatMessage, QuestionCategory } from "@/types/interview";
 
 export interface RespondResult {
@@ -140,16 +141,24 @@ export async function respondAction(params: {
       })
     : Promise.resolve();
 
-  const [generated] = await Promise.all([
-    generateNextQuestion({
-      role: interview.job_role ?? undefined,
-      resumeContext,
-      history,
-      latestAnswer: answer,
-      isFollowUp,
-    }),
-    semanticScorePromise,
-  ]);
+  let generated: { content: string; category: QuestionCategory; isFollowUp: boolean };
+  try {
+    const results = await Promise.all([
+      generateNextQuestion({
+        role: interview.job_role ?? undefined,
+        resumeContext,
+        history,
+        latestAnswer: answer,
+        isFollowUp,
+      }),
+      semanticScorePromise,
+    ]);
+    generated = results[0];
+  } catch (error) {
+    // The answer + telemetry were already persisted above — the interview is
+    // never destroyed by an AI failure. Surface a calm, friendly message.
+    throw new Error(friendlyAIErrorMessage(error));
+  }
 
   const isComplete = isCompletionMessage(generated.content);
 

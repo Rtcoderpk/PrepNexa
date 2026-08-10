@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { generateFeedback, saveFeedback, loadInterviewTelemetry } from "@/services/feedback";
+import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
 import type { InterviewFeedbackReport } from "@/types/feedback";
 
 export interface FeedbackResult {
@@ -54,12 +55,17 @@ export async function generateInterviewFeedbackAction(params: {
 
   const telemetry = await loadInterviewTelemetry(interview.id);
 
-  const report = await generateFeedback({
-    role,
-    resumeContext,
-    history: params.history,
-    telemetry,
-  });
+  let report: InterviewFeedbackReport;
+  try {
+    report = await generateFeedback({
+      role,
+      resumeContext,
+      history: params.history,
+      telemetry,
+    });
+  } catch (error) {
+    throw new Error(friendlyAIErrorMessage(error));
+  }
 
   await saveFeedback({
     interviewId: interview.id,

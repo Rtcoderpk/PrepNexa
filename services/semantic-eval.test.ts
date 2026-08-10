@@ -15,12 +15,6 @@ vi.mock("@/services/llm/provider", () => ({
   }),
 }));
 
-function scoringClient(cosine: number) {
-  return {
-    semanticScore: vi.fn().mockResolvedValue({ cosine, semanticScore: cosine }),
-  };
-}
-
 describe("evaluateAnswer", () => {
   beforeEach(() => {
     chatMock.mockReset();
@@ -29,62 +23,44 @@ describe("evaluateAnswer", () => {
     );
   });
 
-  it("blends cosine and LLM judgment when pythonai is online", async () => {
-    const client = scoringClient(0.9);
-    const result = await evaluateAnswer(
-      { question: "Explain SQL joins", answer: "A join combines rows..." },
-      client,
-    );
+  it("returns the LLM judgment as the blended score", async () => {
+    const result = await evaluateAnswer({
+      question: "Explain SQL joins",
+      answer: "A join combines rows...",
+    });
 
-    expect(client.semanticScore).toHaveBeenCalledTimes(1);
-    expect(result.cosineScore).toBe(0.9);
     expect(result.llmScore).toBe(0.8);
-    // 0.35 * 0.9 + 0.65 * 0.8 = 0.315 + 0.52 = 0.835
-    expect(result.blendedScore).toBeCloseTo(0.835, 3);
+    expect(result.blendedScore).toBe(0.8);
     expect(result.offline).toBe(false);
   });
 
-  it("falls back to LLM-only when pythonai is offline", async () => {
-    const client = {
-      semanticScore: vi.fn().mockRejectedValue(new Error("down")),
-    };
-    const result = await evaluateAnswer(
-      { question: "Q", answer: "A" },
-      client,
-    );
+  it("degrades gracefully (offline) when the LLM call fails", async () => {
+    chatMock.mockRejectedValue(new Error("provider down"));
+    const result = await evaluateAnswer({ question: "Q", answer: "A" });
 
     expect(result.offline).toBe(true);
-    expect(result.cosineScore).toBe(0);
-    expect(result.blendedScore).toBe(result.llmScore);
+    expect(result.llmScore).toBe(0);
+    expect(result.blendedScore).toBe(0);
   });
 
   it("parses LLM output wrapped in extra text", async () => {
     chatMock.mockResolvedValue(
       'Here you go:\n```json\n{"score": 0.6, "reason": "Solid answer."}\n```\nHope that helps!',
     );
-    const result = await evaluateAnswer(
-      { question: "Q", answer: "A" },
-      scoringClient(0.5),
-    );
+    const result = await evaluateAnswer({ question: "Q", answer: "A" });
     expect(result.llmScore).toBe(0.6);
     expect(result.feedback).toBe("Solid answer.");
   });
 
   it("clamps out-of-range LLM scores", async () => {
     chatMock.mockResolvedValue(JSON.stringify({ score: 5, reason: "bad range" }));
-    const result = await evaluateAnswer(
-      { question: "Q", answer: "A" },
-      scoringClient(0.5),
-    );
+    const result = await evaluateAnswer({ question: "Q", answer: "A" });
     expect(result.llmScore).toBe(1);
   });
 
   it("uses default feedback when the LLM omits a reason", async () => {
     chatMock.mockResolvedValue(JSON.stringify({ score: 0.5 }));
-    const result = await evaluateAnswer(
-      { question: "Q", answer: "A" },
-      scoringClient(0.5),
-    );
+    const result = await evaluateAnswer({ question: "Q", answer: "A" });
     expect(result.feedback).toBe("No detailed feedback available.");
   });
 });

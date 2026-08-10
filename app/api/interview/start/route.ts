@@ -4,6 +4,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { sanitizeInput } from "@/lib/security";
 import { startInterviewSchema } from "@/lib/validations";
 import { createInterview } from "@/services/interview";
+import { canUserStartInterview, consumeFreeInterview } from "@/lib/usage";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
       { status: 429 },
+    );
+  }
+
+  // Server-side usage enforcement.
+  const gate = await canUserStartInterview(user.id);
+  if (!gate.allowed) {
+    return NextResponse.json(
+      {
+        error:
+          gate.reason === "has_in_progress"
+            ? "You already have an interview in progress."
+            : "You've used your free interview. Upgrade to PrepNexa Pro to keep practicing.",
+      },
+      { status: 403 },
     );
   }
 
@@ -57,6 +72,12 @@ export async function POST(request: NextRequest) {
         resumeFileName,
       },
     });
+
+    try {
+      await consumeFreeInterview(user.id);
+    } catch {
+      // Never block interview start on quota bookkeeping.
+    }
 
     return NextResponse.json({ interviewId }, { status: 201 });
   } catch (error) {

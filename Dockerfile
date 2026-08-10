@@ -1,9 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # ---------------------------------------------------------------------------
-# InterviewIQ AI — Next.js app container (standalone output).
-# The pythonai + Ollama services run as their own containers (see
-# docker-compose.yml) — this image only hosts the Next.js application.
+# PrepNexa — Next.js app container (standalone output).
+# Cloud-only: Supabase + cloud AI APIs. No local AI services required.
 # ---------------------------------------------------------------------------
 
 # All dependencies (incl. dev — TypeScript, Tailwind, PostCSS are build-time).
