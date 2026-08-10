@@ -4,6 +4,8 @@ import { notFound, redirect } from "next/navigation";
 import { Sparkles, RotateCcw } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getResults } from "@/lib/results";
+import { getUsageStatus } from "@/lib/usage";
+import { ProCtaCard } from "@/components/marketing/pro-cta-card";
 import { ScoreRing } from "@/components/results/score-ring";
 import { Strengths } from "@/components/results/strength-cards";
 import { PerQuestionFeedback } from "@/components/results/per-question-feedback";
@@ -31,6 +33,17 @@ export default async function ResultsPage({
 
   const data = await getResults(id);
   if (!data) notFound();
+
+  // Load usage to decide whether to show the post-free-interview conversion CTA.
+  // Safe default: treat as premium (no CTA) when status can't be read, so a
+  // paying user is never shown an upgrade prompt.
+  let isPremium = true;
+  try {
+    const status = await getUsageStatus(user.id);
+    isPremium = status.isPremium;
+  } catch {
+    // Default stands: no conversion CTA when usage is unknown.
+  }
 
   const { interview } = data;
 
@@ -107,6 +120,14 @@ export default async function ResultsPage({
           <PerQuestionFeedback questions={data.questions} />
         </CardContent>
       </Card>
+
+      {/* Post-free-interview conversion for free users */}
+      {!isPremium && (
+        <ProCtaCard
+          title="You've completed your free interview."
+          description="Ready for your next interview? Upgrade to PrepNexa Pro and keep practicing with advanced feedback, resume analysis, and job matching."
+        />
+      )}
     </div>
   );
 }

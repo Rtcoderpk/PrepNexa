@@ -1,5 +1,5 @@
 -- =============================================================
--- InterviewIQ AI - Database Schema
+-- PrepNexa - Database Schema
 -- Run this in the Supabase SQL Editor.
 -- =============================================================
 

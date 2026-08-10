@@ -17,7 +17,7 @@ export function ReportActions({ data }: { data: ResultsData }) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `interviewiq-report-${new Date().toISOString().slice(0, 10)}.html`;
+      link.download = `prepnexa-report-${new Date().toISOString().slice(0, 10)}.html`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -53,7 +53,7 @@ export function ReportActions({ data }: { data: ResultsData }) {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: "My InterviewIQ AI Result",
+          title: "My PrepNexa Result",
           text: `I scored ${data.interview.overall_score}/10 on my ${data.interview.job_role ?? "interview"} practice session.`,
           url,
         });

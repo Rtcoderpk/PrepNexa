@@ -30,6 +30,17 @@ interface ExistingQuestion {
 const COMPLETION_PHRASE =
   "That wraps up our interview — thank you for your time today.";
 
+/** Match the friendly messages the server uses for transient AI failures. */
+function isTransientAIError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    msg.includes("temporarily busy") ||
+    msg.includes("switching to another AI engine") ||
+    msg.includes("already in progress") ||
+    msg.includes("No AI provider is currently available")
+  );
+}
+
 export function InterviewChat({
   info,
   initialQuestions,
@@ -334,11 +345,19 @@ export function InterviewChat({
         }
       } catch (error) {
         setIsThinking(false);
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Something went wrong. Please try again.",
-        );
+        // Never surface raw provider errors. AI failures preserve the answer
+        // (persisted server-side) so the interview can continue/reconnect.
+        if (isTransientAIError(error)) {
+          toast.error(
+            "AI is temporarily busy. We're automatically switching to another AI engine. Your answer is saved.",
+          );
+        } else {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Something went wrong. Your answer was saved — please refresh to continue.",
+          );
+        }
       }
     },
     [info.id, isEnded, isThinking, isGeneratingFeedback, messages, vision, audioRecorder, collectAnswerTelemetry, buildLocalSpeech, generateFeedback],

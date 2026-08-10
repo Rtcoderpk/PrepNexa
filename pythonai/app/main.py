@@ -16,7 +16,7 @@ from app.routers import embeddings, transcribe
 from app.schemas import HealthResponse
 
 app = FastAPI(
-    title="InterviewIQ pythonai",
+    title="PrepNexa pythonai",
     version="1.0.0",
     description="Self-hosted speech + semantic analysis service.",
 )

@@ -1,11 +1,31 @@
 import type { Metadata } from "next";
+import { createClient } from "@/lib/supabase/server";
+import { getUsageStatus } from "@/lib/usage";
+import { ProCtaCard } from "@/components/marketing/pro-cta-card";
 import { SetupForm } from "@/components/setup/setup-form";
 
 export const metadata: Metadata = {
   title: "Setup Interview",
 };
 
-export default function SetupPage() {
+export default async function SetupPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Server-side paywall: a free user who already used their free interview
+  // cannot start another — surface an upgrade CTA instead of the form.
+  let canStart = true;
+  if (user) {
+    try {
+      const status = await getUsageStatus(user.id);
+      canStart = status.canStartInterview;
+    } catch {
+      // Non-blocking — the start action enforces the gate anyway.
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div>
@@ -17,7 +37,14 @@ export default function SetupPage() {
           real.
         </p>
       </div>
-      <SetupForm />
+      {canStart ? (
+        <SetupForm />
+      ) : (
+        <ProCtaCard
+          title="You've used your free interview"
+          description="Upgrade to PrepNexa Pro to keep practicing with advanced feedback, resume analysis, and job matching."
+        />
+      )}
     </div>
   );
 }

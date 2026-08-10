@@ -10,22 +10,27 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "InterviewIQ AI — Master Your Next Interview",
-    template: "%s | InterviewIQ AI",
+    default:
+      "PrepNexa — AI Mock Interviews & Free ATS Resume Checker",
+    template: "%s | PrepNexa",
   },
   description:
-    "Practice real interviews with Alex, your AI interviewer. Get personalized feedback, scores, and a detailed report to level up before your next big interview.",
+    "Practice AI mock interviews, analyze your resume, check ATS compatibility, match your CV to job descriptions, and improve your chances of getting hired.",
   keywords: [
-    "AI interview",
-    "mock interview",
+    "AI mock interview",
+    "free AI mock interview",
+    "ATS resume checker",
+    "free resume analyzer",
+    "AI resume analyzer",
+    "free CV checker",
     "interview practice",
     "AI interviewer",
-    "career",
+    "career preparation",
   ],
   openGraph: {
-    title: "InterviewIQ AI",
+    title: "PrepNexa — AI Career Preparation, Built Around You",
     description:
-      "Master your next interview with Alex, your personal AI interviewer.",
+      "Practice AI mock interviews, check your resume for ATS compatibility, and become job-ready with PrepNexa.",
     type: "website",
   },
 };

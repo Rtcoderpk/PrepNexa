@@ -10,7 +10,7 @@ export default function LoginPage() {
       subtitle="Sign in to continue your interview practice"
       footer={
         <>
-          New to InterviewIQ?{" "}
+          New to PrepNexa?{" "}
           <Link
             href="/signup"
             className="font-semibold text-primary hover:underline"

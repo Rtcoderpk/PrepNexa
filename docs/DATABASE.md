@@ -1,4 +1,4 @@
-# InterviewIQ AI — Database Design
+# PrepNexa — Database Design
 
 Supabase PostgreSQL. All tables enable Row Level Security and are scoped to the
 owning `auth.uid()`. Full DDL lives in `supabase/schema.sql` — this document is

@@ -1,8 +1,8 @@
-# InterviewIQ AI — Folder Structure
+# PrepNexa — Folder Structure
 
 Enterprise, feature-based structure. Business logic lives in `services/`,
 data access in `lib/`, server actions in `actions/`, providers behind
-`services/llm/` (seam for future inference engines).
+`lib/ai/` (the cloud AI router seam).
 
 ```
 ├── app/                          # Next.js App Router
@@ -11,6 +11,20 @@ data access in `lib/`, server actions in `actions/`, providers behind
 │   │   ├── signup/
 │   │   ├── forgot-password/
 │   │   └── reset-password/
+│   ├── (marketing)/              # public SEO landing pages (no auth gate)
+│   │   ├── ai-mock-interview/
+│   │   ├── free-ats-resume-checker/
+│   │   ├── ai-resume-analyzer/
+│   │   ├── cv-analyzer/
+│   │   ├── resume-score-checker/
+│   │   ├── interview-practice/
+│   │   ├── interview-questions/          # hub + role/category pages
+│   │   ├── resume-tips/
+│   │   ├── career-resources/
+│   │   ├── pricing/
+│   │   ├── blog/ + blog/[slug]/
+│   │   ├── about/ contact/ privacy/ terms/ cookie-policy/
+│   │   └── layout.tsx             # marketing header/footer
 │   ├── (dashboard)/              # authenticated app shell
 │   │   ├── dashboard/
 │   │   ├── history/
@@ -19,104 +33,103 @@ data access in `lib/`, server actions in `actions/`, providers behind
 │   │       ├── page.tsx          # live interview
 │   │       └── results/page.tsx  # comprehensive feedback
 │   ├── api/                      # Route Handlers (the primary API)
-│   │   ├── interview/
-│   │   │   ├── start/route.ts
-│   │   │   ├── opening/route.ts
-│   │   │   ├── respond/route.ts
-│   │   │   └── feedback/route.ts
-│   │   ├── analysis/
-│   │   │   ├── speech/route.ts       # WAV → transcript + speech metrics
-│   │   │   └── semantic/route.ts     # embeddings / semantic scoring
-│   │   └── upload-resume/route.ts
-│   ├── error.tsx
-│   ├── not-found.tsx
-│   ├── layout.tsx
-│   ├── providers.tsx
-│   └── globals.css
+│   │   ├── interview/ (start, opening, respond, feedback, feedback/status)
+│   │   ├── resume/ (analyze, analyze-upload, job-match, parse)
+│   │   ├── payments/ (checkout, webhook, manual-confirm, status)
+│   │   ├── analysis/ (transcribe, semantic — optional pythonai proxy)
+│   │   ├── feedback-worker/
+│   │   └── upload-resume/
+│   ├── sitemap.ts                # dynamic public sitemap
+│   ├── robots.ts                 # robots.txt (public allow / private block)
+│   ├── layout.tsx                # root metadata (PrepNexa brand)
+│   └── page.tsx                  # SEO homepage
 │
 ├── components/
-│   ├── ui/                      # shadcn/ui primitives (unchanged)
+│   ├── ui/                      # shadcn/ui primitives
 │   ├── auth/                    # auth forms + shell
+│   ├── brand/                   # PrepNexa logo
 │   ├── layout/                  # dashboard shell, theme toggle
+│   ├── marketing/               # site header/footer, CTA, role-questions, JSON-LD
+│   ├── ads/                     # AdSlot (free users; disabled for Pro)
+│   ├── payments/                # checkout button
+│   ├── resume/                  # resume analyzer + job match UIs
 │   ├── setup/                   # setup form, resume upload
 │   ├── interview/               # chat, input, message bubble
-│   ├── vision/                  # CV UI (live metrics, permission gate)
+│   ├── vision/                  # CV UI
 │   └── results/                 # feedback report UI
 │
-├── services/                    # business logic (Clean-ish layering)
-│   ├── llm/                     # ← the AI seam
-│   │   ├── types.ts             # ILLMProvider, Message, ChatOptions, EmbeddingsResult
-│   │   ├── provider.ts          # createLLMProvider() factory (env-driven)
-│   │   ├── ollama/              # OllamaProvider + HTTP client
-│   │   │   ├── ollama-provider.ts
-│   │   │   ├── ollama-client.ts
-│   │   │   └── ollama-embedding-provider.ts
-│   │   ├── prompts/             # prompt builders (interviewer, feedback, resume)
-│   │   │   ├── interviewer.ts
-│   │   │   ├── feedback.ts
-│   │   │   └── resume.ts
+├── services/                    # business logic
+│   ├── llm/                     # ← ILLMProvider adapter + prompts
+│   │   ├── types.ts             # ILLMProvider, ChatOptions, EmbeddingsResult
+│   │   ├── provider.ts          # createLLMProvider() → cloud AI router
+│   │   └── prompts/             # interviewer, feedback, resume builders
 │   ├── interview.ts             # interview orchestration (questions, completion)
 │   ├── feedback.ts              # feedback generation + persistence
 │   ├── resume.ts                # PDF parse + storage
-│   └── speech-metrics.ts        # transcript analysis helpers (used by pythonai)
+│   ├── resume-analysis.ts       # ATS analysis, improvements, job match
+│   ├── semantic-eval.ts         # LLM answer scoring
+│   └── speech-metrics.ts        # transcript analysis helpers
 │
 ├── actions/                     # Server Actions (forms)
 │   ├── auth.ts
-│   ├── interview.ts
+│   ├── interview.ts             # usage-gated interview start
 │   ├── respond.ts
 │   ├── feedback.ts
-│   └── resume.ts
+│   ├── resume.ts
+│   └── checkout.ts              # create payment session
 │
-├── lib/                         # framework-adjacent utilities + data access
-│   ├── supabase/                # server/middleware/client clients
-│   ├── env.ts                   # boot-time env validation
+├── lib/                         # utilities + data access
+│   ├── ai/                      # ← cloud AI router
+│   │   ├── ai-types.ts          # AIError, AICapabilities, ChatOptions
+│   │   ├── ai-config.ts         # providers + per-task model routing
+│   │   ├── ai-router.ts         # selection, retry, failover
+│   │   ├── retry-manager.ts
+│   │   ├── provider-health.ts   # cooldowns + telemetry
+│   │   ├── usage-manager.ts     # in-memory counters + dedup
+│   │   ├── friendly-errors.ts   # user-safe error copy
+│   │   └── providers/           # groq, gemini, cloudflare, openrouter
+│   ├── payments/                # provider-independent payments
+│   │   ├── provider.ts          # checkout session seam
+│   │   ├── webhook.ts           # server-side verification
+│   │   └── subscription.ts      # DB persistence + entitlement
+│   ├── supabase/                # server/middleware/client/admin clients
+│   ├── env.ts                   # boot-time env validation (server-only keys)
+│   ├── usage.ts                 # server-side usage + entitlement enforcement
+│   ├── pricing.ts               # central plan + pricing config
+│   ├── constants.ts             # site name/URL
 │   ├── rate-limit.ts            # pluggable store (memory/redis)
-│   ├── redis.ts                 # redis client factory
-│   ├── security.ts              # injection guard + sanitize
-│   ├── validations.ts           # zod schemas (incl. metrics)
-│   ├── feedback.ts              # parseFeedbackJson + validation
+│   ├── redis.ts
+│   ├── security.ts
+│   ├── validations.ts
+│   ├── feedback.ts
 │   ├── dashboard.ts
 │   ├── history.ts
 │   ├── results.ts
 │   ├── pdf-report.ts
 │   └── utils.ts
 │
-├── hooks/
-│   ├── use-speech-recognition.ts    # Web Speech API fallback
-│   ├── use-speech-synthesis.ts      # browser TTS (Kokoro-ready)
-│   ├── use-vision-metrics.ts        # MediaPipe CV (face + pose)
-│   └── use-audio-recorder.ts        # WAV capture per answer
+├── content/
+│   └── blog/index.ts            # blog post registry (hand-written)
 │
-├── lib/vision/                  # browser CV math (reference math, rewritten)
-│   ├── landmark-indices.ts
-│   ├── metrics.ts               # EAR, MAR, gaze, head pose, confidence
-│   └── aggregation.ts           # per-second samples → session aggregates
+├── hooks/                       # Web Speech, TTS, MediaPipe CV, audio recorder
+├── lib/vision/                  # browser CV math (EAR, MAR, gaze, posture)
 │
-├── pythonai/                    # separate Python AI service
-│   ├── app/
-│   │   ├── main.py              # FastAPI entry
-│   │   ├── schemas.py
-│   │   ├── config.py
-│   │   └── routers/
-│   │       ├── transcribe.py    # Faster Whisper
-│   │       ├── speech_metrics.py
-│   │       └── embeddings.py    # sentence-transformers
-│   ├── requirements.txt
-│   └── Dockerfile
+├── pythonai/                    # OPTIONAL self-hosted speech/semantic service
 │
 ├── supabase/
-│   └── schema.sql               # full schema + RLS
+│   ├── schema.sql               # core schema + RLS
+│   ├── migration_missing_tables.sql
+│   └── migration_prepnexa.sql   # usage/subscriptions/resume_analyses/ai_usage_logs
 │
 ├── types/
 │   ├── database.ts              # Supabase DB types (hand-maintained)
-│   ├── interview.ts             # domain types
-│   └── feedback.ts              # feedback report types
+│   ├── interview.ts
+│   └── feedback.ts
 │
 ├── middleware.ts
 ├── next.config.mjs
-├── ecosystem.config.js          # PM2 (Next app)
-├── ecosystem-pythonai.config.js # PM2 (pythonai)
-├── docker-compose.yml
+├── ecosystem.config.js          # PM2 (Next app + feedback drainer)
+├── docker-compose.yml           # optional: just the Next.js container
 ├── Dockerfile
 ├── nginx.conf
 └── README.md

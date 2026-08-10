@@ -1,9 +1,9 @@
-# InterviewIQ AI — API Design
+# PrepNexa — API Design
 
 Two surfaces: **Route Handlers** (the primary JSON API, used by the interview
-client) and **Server Actions** (form-centric mutations with `revalidatePath`).
-Both share validation schemas, the rate limiter, the security layer, and the LLM
-provider.
+and resume clients) and **Server Actions** (form-centric mutations with
+`revalidatePath`). Both share validation schemas, the rate limiter, the security
+layer, and the cloud AI router.
 
 ## Auth (Server Actions)
 | action | purpose |
@@ -119,37 +119,39 @@ PDF upload → parse + store (unchanged contract, hardened validation).
 ## Error Contract
 - `400` validation / injection attempt
 - `401` unauthenticated
-- `403` resource belongs to another user
+- `403` resource belongs to another user / plan limit reached
 - `404` not found
 - `409` interview already ended
 - `429` rate limited
-- `500` provider / analysis failure
-- `503` Ollama unreachable (clear setup message, never silent cloud fallback)
+- `500` provider / analysis failure (mapped to a friendly message; never raw provider errors)
 
-## LLM Provider Interface (`services/llm/types.ts`)
-```ts
-interface EmbeddingResult {
-  embedding: number[];
-  model: string;
-}
+## AI Router Interface (`lib/ai/ai-router.ts`)
 
-interface ILLMProvider {
-  chat(options: ChatOptions): Promise<string>;           // non-streaming
-  stream?(options: ChatOptions): AsyncIterable<string>;  // streaming (future)
-  embed(text: string): Promise<EmbeddingResult>;
-  ping(): Promise<boolean>;                              // health check
-}
+The app never calls a provider SDK directly. Every AI request goes through
+`createLLMProvider()` (`services/llm/provider.ts`), which adapts the legacy
+`ILLMProvider` interface to the cloud router. The router:
 
-class LLMError extends Error {
-  kind: "unreachable" | "timeout" | "response" | "config";
-}
-```
-`createLLMProvider()` returns `OllamaProvider` (env-driven model, default
-`qwen3:8b`). `createEmbeddingProvider()` returns an embedding-only provider
-(default `nomic-embed-text`). Future engines (`VllmProvider`, `LmStudioProvider`)
-implement the same interface; only the factory changes. When Ollama is
-unreachable, calls throw `LLMError(kind: "unreachable")` — there is deliberately
-no silent cloud fallback.
+1. Classifies the request by **task** (`interview_question`, `interview_feedback`,
+   `semantic_scoring`, `resume_analysis`, `job_match`, `resume_improvement`).
+2. Selects the best provider + model from `lib/ai/ai-config.ts` (Groq first for
+   latency-sensitive text; Gemini first for long-context JSON).
+3. Retries transient failures with exponential backoff (`retry-manager.ts`).
+4. Fails over across providers (Groq → Gemini → Cloudflare → OpenRouter) and
+   honors provider cooldowns (`provider-health.ts`).
+5. Logs usage to `ai_usage_logs` for cost control (`lib/usage.ts`).
+
+Errors thrown are `AIError` (`lib/ai/ai-types.ts`) with kinds:
+`unreachable | timeout | rate_limited | server_error | invalid_response | quota | config | response`.
+The user-facing layer maps every AI error to a calm, friendly message
+(`lib/ai/friendly-errors.ts`) — never exposing provider names or HTTP codes.
+
+## Usage & plan enforcement
+- Free users: **1 AI mock interview** and **3 resume checks**, enforced
+  server-side in `lib/usage.ts` (DB-backed). New interviews after the free one
+  return `403` with a friendly upgrade message.
+- Premium (Pro, PKR 499/month) is verified only via the payment webhook
+  (`lib/payments/webhook.ts`).
+
 ## Payments API (multi-provider, Safepay primary)
 - `POST /api/payments/checkout` — authenticated; creates a checkout session via
   the configured provider and returns `{ checkoutUrl, sessionId, provider }`.
