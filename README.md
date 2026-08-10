@@ -60,16 +60,25 @@ GEMINI_API_KEY=...
 
 ### 4. Database
 
-Open the Supabase SQL Editor and run the contents of
-[`supabase/schema.sql`](./supabase/schema.sql), then
-[`supabase/migration_prepnexa.sql`](./supabase/migration_prepnexa.sql). This
-creates `profiles`, `resumes`, `interviews`, `interview_questions`,
-`speech_metrics`, `vision_metrics`, `feedback_reports`, plus `usage_limits`,
-`subscriptions`, `resume_analyses`, `ai_usage_logs`, `provider_health` and all
-Row Level Security policies. For multi-provider payments (Safepay primary), also
-apply [`supabase/migration_safepay_payments.sql`](./supabase/migration_safepay_payments.sql),
-which adds the idempotent `payment_transactions` ledger. Safepay merchant
-credentials come from your verified Safepay account (see `.env.example`).
+Open the Supabase SQL Editor and run the contents of the migration files in
+order:
+
+1. [`supabase/schema.sql`](./supabase/schema.sql) — base schema
+   (`profiles`, `resume_files`, `interviews`, `interview_questions`,
+   `speech_metrics`, `vision_metrics`, `feedback_reports`).
+2. [`supabase/migration_prepnexa.sql`](./supabase/migration_prepnexa.sql) —
+   plan + usage layer: `profiles` columns, `subscriptions`, `resume_analyses`,
+   `ai_usage_logs`, `usage_limits`, `provider_health`.
+3. [`supabase/migration_missing_tables.sql`](./supabase/migration_missing_tables.sql) —
+   for a **live project upgraded from an earlier version**: adds the
+   `interviews` score columns and the `speech_metrics` / `vision_metrics` /
+   `feedback_reports` tables if they aren't present.
+4. [`supabase/migration_safepay_payments.sql`](./supabase/migration_safepay_payments.sql) —
+   multi-provider payments (Safepay primary): the idempotent
+   `payment_transactions` ledger.
+
+All migrations are idempotent — safe to re-run. Safepay merchant credentials
+come from your verified Safepay account (see `.env.example`).
 
 ### 5. Run
 
