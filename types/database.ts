@@ -6,6 +6,9 @@ export interface Database {
           id: string;
           full_name: string | null;
           avatar_url: string | null;
+          free_interview_used: boolean;
+          resume_analysis_count: number;
+          is_premium: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -13,12 +16,18 @@ export interface Database {
           id: string;
           full_name?: string | null;
           avatar_url?: string | null;
+          free_interview_used?: boolean;
+          resume_analysis_count?: number;
+          is_premium?: boolean;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           full_name?: string | null;
           avatar_url?: string | null;
+          free_interview_used?: boolean;
+          resume_analysis_count?: number;
+          is_premium?: boolean;
           updated_at?: string;
         };
         Relationships: [];
@@ -272,6 +281,186 @@ export interface Database {
           created_at?: string;
         };
         Update: Record<string, never>;
+        Relationships: [];
+      };
+      usage_limits: {
+        Row: {
+          id: string;
+          user_id: string;
+          free_interview_used: boolean;
+          resume_analysis_count: number;
+          daily_ai_requests: number;
+          monthly_ai_requests: number;
+          last_request_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          free_interview_used?: boolean;
+          resume_analysis_count?: number;
+          daily_ai_requests?: number;
+          monthly_ai_requests?: number;
+          last_request_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          free_interview_used?: boolean;
+          resume_analysis_count?: number;
+          daily_ai_requests?: number;
+          monthly_ai_requests?: number;
+          last_request_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          plan: string;
+          status: string;
+          provider: string;
+          transaction_id: string | null;
+          start_date: string;
+          expiry_date: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          plan?: string;
+          status?: string;
+          provider: string;
+          transaction_id?: string | null;
+          start_date?: string;
+          expiry_date?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          plan?: string;
+          status?: string;
+          transaction_id?: string | null;
+          expiry_date?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      resume_analyses: {
+        Row: {
+          id: string;
+          user_id: string;
+          resume_file_id: string | null;
+          ats_score: number | null;
+          quality_score: number | null;
+          job_match_score: number | null;
+          has_job_description: boolean;
+          report: Record<string, unknown> | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          resume_file_id?: string | null;
+          ats_score?: number | null;
+          quality_score?: number | null;
+          job_match_score?: number | null;
+          has_job_description?: boolean;
+          report?: Record<string, unknown> | null;
+          created_at?: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      ai_usage_logs: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          task: string;
+          provider: string | null;
+          model: string | null;
+          success: boolean;
+          error_kind: string | null;
+          latency_ms: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          task: string;
+          provider?: string | null;
+          model?: string | null;
+          success?: boolean;
+          error_kind?: string | null;
+          latency_ms?: number | null;
+          created_at?: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      payment_transactions: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          provider: string;
+          transaction_id: string;
+          event_type: string;
+          status: "succeeded" | "failed" | "pending" | "cancelled" | "expired";
+          amount: number | null;
+          currency: string | null;
+          payload: Record<string, unknown> | null;
+          processed_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          provider: string;
+          transaction_id: string;
+          event_type: string;
+          status: "succeeded" | "failed" | "pending" | "cancelled" | "expired";
+          amount?: number | null;
+          currency?: string | null;
+          payload?: Record<string, unknown> | null;
+          processed_at?: string;
+          created_at?: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      provider_health: {
+        Row: {
+          id: string;
+          provider: string;
+          success_count: number;
+          failure_count: number;
+          rate_limited_count: number;
+          average_latency_ms: number | null;
+          last_failure_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          provider: string;
+          success_count?: number;
+          failure_count?: number;
+          rate_limited_count?: number;
+          average_latency_ms?: number | null;
+          last_failure_at?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          success_count?: number;
+          failure_count?: number;
+          rate_limited_count?: number;
+          average_latency_ms?: number | null;
+          last_failure_at?: string | null;
+          updated_at?: string;
+        };
         Relationships: [];
       };
     };

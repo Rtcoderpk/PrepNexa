@@ -136,6 +136,26 @@ validated by `feedbackReportSchema` in `lib/validations.ts` before persistence.
 Keeping the raw payload in JSONB preserves fields while the normalized columns
 above power dashboards/trends.
 
+### payment_transactions (new — idempotent webhook ledger, Safepay + multi-provider)
+| column | type | notes |
+| --- | --- | --- |
+| id | uuid PK | |
+| user_id | uuid FK | nullable, cascade |
+| provider | text | safepay / stripe / manual / ... |
+| transaction_id | text | e.g. Safepay `tracker.token` |
+| event_type | text | e.g. `payment.succeeded` |
+| status | text | succeeded / failed / pending / cancelled / expired |
+| amount | integer | lowest denomination |
+| currency | text | e.g. PKR |
+| payload | jsonb | raw webhook payload (audit) |
+| processed_at | timestamptz | |
+| created_at | timestamptz | |
+
+Every verified webhook event is recorded once. The unique constraint on
+`(provider, transaction_id, event_type)` makes webhook processing idempotent:
+replayed / duplicate deliveries are skipped so a single payment grants at most
+one subscription period. Added by `supabase/migration_safepay_payments.sql`.
+
 ## RLS Policy Matrix
 
 All policies use `auth.uid() = <user_id>`.

@@ -80,6 +80,23 @@ Cosine similarity alone is insufficient (reference uses it alone). We combine:
 2. LLM reasoning pass scoring technical correctness, completeness, clarity, STAR.
 Final score is a weighted blend, dominated by the LLM but anchored by embeddings.
 
+### ADR-7: Multi-provider payments (Safepay primary)
+Payments go through a provider seam (`lib/payments/provider.ts`) — business logic
+never calls a gateway SDK directly. **Safepay** is the primary provider (Pakistani
++ international card payments, PKR 499/month), implemented with the official
+`@sfpy/node-core` SDK in `lib/payments/safepay.ts` (Express Checkout flow).
+Stripe and manual modes remain for parity. JazzCash / easypaisa are future
+additive providers behind the same interface.
+- Checkout is created server-side; the frontend only redirects to the hosted URL.
+- Webhook verification is provider-specific (Safepay HMAC-SHA512 via
+  `X-SFPY-SIGNATURE`; Stripe SDK; manual shared secret). Only verified webhooks
+  activate premium — the browser can never unlock it.
+- Webhooks are **idempotent**: events are recorded in `payment_transactions`
+  (unique per `provider, transaction_id, event_type`); duplicates/replays are
+  skipped so a payment grants at most one subscription period. Subscriptions
+  renew manually each month (a new checkout advances `expiry_date` by 30 days);
+  `lib/usage.ts` enforces expiry server-side.
+
 ## 4. System Diagram
 
 ```

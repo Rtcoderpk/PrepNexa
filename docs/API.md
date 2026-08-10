@@ -150,3 +150,25 @@ class LLMError extends Error {
 implement the same interface; only the factory changes. When Ollama is
 unreachable, calls throw `LLMError(kind: "unreachable")` — there is deliberately
 no silent cloud fallback.
+## Payments API (multi-provider, Safepay primary)
+- `POST /api/payments/checkout` — authenticated; creates a checkout session via
+  the configured provider and returns `{ checkoutUrl, sessionId, provider }`.
+  Provider chosen from `PAYMENT_PROVIDER` env. Safepay uses the official Express
+  Checkout flow (payment session → client passport token → hosted checkout URL).
+- `POST /api/payments/webhook` — the ONLY place premium is activated. Provider
+  inferred from `x-payment-provider` header (defaults to `PAYMENT_PROVIDER`).
+  - **Safepay** verifies the `X-SFPY-SIGNATURE` header (HMAC-SHA512 of the
+    JSON-stringified body with the endpoint shared secret). Only
+    `payment.succeeded` events activate premium; the `tracker` (a plain string
+    in `data`) is the transaction id, and the user is resolved from the
+    `data.metadata.userId` we attach at session creation (with
+    `data.customer_email` as a fallback).
+  - **Stripe** verifies the `stripe-signature` header via the SDK.
+  - **Manual** requires the `x-manual-secret` shared secret.
+- Webhook processing is **idempotent**: every verified event is recorded in
+  `payment_transactions` with a unique `(provider, transaction_id, event_type)`
+  constraint. Replayed / duplicate deliveries are skipped, so a single payment
+  can never grant more than one subscription period. (Apply
+  `supabase/migration_safepay_payments.sql` for this table.)
+- `payment_transactions` is an audit ledger of every processed event (status:
+  succeeded / failed / pending / cancelled / expired).
