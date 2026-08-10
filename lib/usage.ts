@@ -234,3 +234,55 @@ export async function logAiUsage(params: {
     // Non-critical accounting — never fail the request.
   }
 }
+
+export type AiBudgetCheck = { allowed: boolean; reason?: "daily" | "hourly" };
+
+/**
+ * Per-user AI usage budget guard. Counts the user's AI requests within rolling
+ * daily/hourly windows from `ai_usage_logs` and blocks when a configured limit
+ * is exceeded. Limits come from env (AI_DAILY_BUDGET / AI_HOURLY_BUDGET); 0
+ * disables the guard. The check is best-effort — failures return allowed.
+ * This protects the app's provider free-tier capacity from a single heavy user.
+ */
+export async function checkAiBudget(
+  userId: string | undefined,
+): Promise<AiBudgetCheck> {
+  const { env } = await import("@/lib/env");
+  const dailyLimit = env.aiDailyBudget;
+  const hourlyLimit = env.aiHourlyBudget;
+  if ((!dailyLimit || dailyLimit <= 0) && (!hourlyLimit || hourlyLimit <= 0)) {
+    return { allowed: true };
+  }
+  if (!userId) return { allowed: true };
+
+  try {
+    const client = tryGetAdmin() ?? (await createClient());
+    const now = Date.now();
+    const [daily, hourly] = await Promise.all([
+      dailyLimit > 0
+        ? countAiRequests(client, userId, now - 24 * 60 * 60 * 1000)
+        : Promise.resolve(0),
+      hourlyLimit > 0
+        ? countAiRequests(client, userId, now - 60 * 60 * 1000)
+        : Promise.resolve(0),
+    ]);
+    if (dailyLimit > 0 && daily >= dailyLimit) return { allowed: false, reason: "daily" };
+    if (hourlyLimit > 0 && hourly >= hourlyLimit) return { allowed: false, reason: "hourly" };
+    return { allowed: true };
+  } catch {
+    return { allowed: true };
+  }
+}
+
+async function countAiRequests(
+  client: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  sinceMs: number,
+): Promise<number> {
+  const { count } = await client
+    .from("ai_usage_logs")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", new Date(sinceMs).toISOString());
+  return count ?? 0;
+}

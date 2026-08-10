@@ -27,6 +27,8 @@ export interface ChatOptions {
   timeoutMs?: number;
   /** Optional structured-output hint (e.g. "json") for providers that support it. */
   format?: "json" | undefined;
+  /** Optional user id — used for per-user AI budget guardrails. */
+  userId?: string;
 }
 
 export interface EmbeddingResult {

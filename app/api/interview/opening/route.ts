@@ -99,6 +99,7 @@ export async function POST(request: NextRequest) {
       resumeContext,
       history: [],
       totalQuestions: 5,
+      userId: user.id,
     });
 
     const { data: questionRow, error: questionError } = await supabase

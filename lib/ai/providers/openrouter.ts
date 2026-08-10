@@ -13,6 +13,12 @@ const DEFAULT_TIMEOUT_MS = 90_000;
 /**
  * OpenRouter provider. Used as a final fallback when primary providers are
  * exhausted/rate-limited and the free-tier limits make sense for the request.
+ *
+ * Model strategy: `openrouter/auto` lets OpenRouter pick the cheapest capable
+ * model per request (good for cost) at the price of non-deterministic model
+ * choice. It is retained deliberately — no task here requires a pinned model,
+ * and pinning would sacrifice cost flexibility. If output consistency becomes
+ * important for a specific task, pin a concrete model for that task only.
  */
 export class OpenRouterProvider implements AIProvider {
   readonly id = "openrouter";
@@ -68,7 +74,10 @@ export class OpenRouterProvider implements AIProvider {
 
   private mapError(status: number, body: string): AIError {
     if (status === 429) {
-      return new AIError("rate_limited", "OpenRouter rate limit hit", { providerId: this.id });
+      return new AIError("rate_limited", "OpenRouter rate limit hit", {
+        providerId: this.id,
+        retryAfterSec: parseRetryAfter(body),
+      });
     }
     if (status >= 500) {
       return new AIError("server_error", `OpenRouter server error (${status})`, { providerId: this.id });
@@ -77,4 +86,10 @@ export class OpenRouterProvider implements AIProvider {
       providerId: this.id,
     });
   }
+}
+
+/** Parses Retry-After (seconds) from an OpenRouter error body when present. */
+function parseRetryAfter(body: string): number | undefined {
+  const match = body.match(/"retry-after"\s*:\s*(\d+)/i);
+  return match ? Number(match[1]) : undefined;
 }

@@ -138,6 +138,7 @@ export async function respondAction(params: {
         answer,
         role: interview.job_role ?? undefined,
         resumeContext,
+        userId: user.id,
       })
     : Promise.resolve();
 
@@ -150,6 +151,7 @@ export async function respondAction(params: {
         history,
         latestAnswer: answer,
         isFollowUp,
+        userId: user.id,
       }),
       semanticScorePromise,
     ]);
@@ -230,6 +232,7 @@ async function scoreAnswerSemantically(params: {
   answer: string;
   role?: string;
   resumeContext?: string;
+  userId?: string;
 }): Promise<void> {
   try {
     const evaluation = await semanticEvaluator.evaluate({
@@ -237,6 +240,7 @@ async function scoreAnswerSemantically(params: {
       answer: params.answer,
       role: params.role,
       resumeContext: params.resumeContext,
+      userId: params.userId,
     });
 
     const feedbackText =

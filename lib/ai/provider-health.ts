@@ -1,10 +1,14 @@
 import type { ProviderId } from "@/lib/ai/ai-config";
 import { persistProviderHealth } from "@/lib/usage";
+import { getRedis } from "@/lib/redis";
 
 /**
- * In-memory provider health tracking. Cooldowns prevent routing traffic to a
- * provider that is failing/rate-limited. State is per-instance (fine for a
- * serverless or single-instance deployment; a shared store could be added later).
+ * Provider health + cooldown tracking.
+ *
+ * Cooldowns prevent routing traffic to a provider that is failing/rate-limited.
+ * In-memory by default (single-instance). When Redis is available (RATE_LIMIT_STORE
+ * or REDIS_URL configured) the cooldown deadline is shared across instances so a
+ * multi-instance deployment does not re-hit a cooled-down provider.
  */
 
 export interface ProviderHealth {
@@ -18,10 +22,18 @@ export interface ProviderHealth {
   cooldownUntil: number | null;
 }
 
-const COOLDOWN_MS = 30_000;
-const RATE_LIMIT_COOLDOWN_MS = 45_000;
+export const COOLDOWN_MS = 30_000;
+const RATE_LIMIT_COOLDOWN_MS = 60_000;
+/** Quota exhaustion gets a longer cooldown so the provider can recover. */
+const QUOTA_COOLDOWN_MS = 120_000;
+/** Minimum cooldown for any rate-limit, even when Retry-After is small. */
+const MIN_RATE_LIMIT_COOLDOWN_MS = 15_000;
 
 const healthByProvider = new Map<string, ProviderHealth>();
+
+function redisKey(providerId: string): string {
+  return `ai:provider:cooldown:${providerId}`;
+}
 
 function getEntry(providerId: string): ProviderHealth {
   let entry = healthByProvider.get(providerId);
@@ -40,6 +52,47 @@ function getEntry(providerId: string): ProviderHealth {
   return entry;
 }
 
+/** Reads the distributed cooldown deadline (epoch ms) if Redis is available. */
+async function readDistributedCooldown(
+  providerId: string,
+): Promise<number | null> {
+  try {
+    const redis = await getRedis();
+    if (!redis) return null;
+    const raw = await redis.get(redisKey(providerId));
+    if (!raw) return null;
+    const deadline = Number(raw);
+    return Number.isFinite(deadline) ? deadline : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Writes the distributed cooldown deadline (seconds TTL) when Redis is available. */
+async function writeDistributedCooldown(
+  providerId: string,
+  cooldownUntil: number,
+): Promise<void> {
+  try {
+    const redis = await getRedis();
+    if (!redis) return;
+    const ttlSec = Math.max(1, Math.ceil((cooldownUntil - Date.now()) / 1000));
+    await redis.setex(redisKey(providerId), ttlSec, String(cooldownUntil));
+  } catch {
+    // Distributed cooldown is best-effort — never break routing.
+  }
+}
+
+async function clearDistributedCooldown(providerId: string): Promise<void> {
+  try {
+    const redis = await getRedis();
+    if (!redis) return;
+    await redis.del(redisKey(providerId));
+  } catch {
+    // Best-effort.
+  }
+}
+
 export function recordSuccess(providerId: string, latencyMs: number): void {
   const entry = getEntry(providerId);
   entry.successCount += 1;
@@ -47,6 +100,9 @@ export function recordSuccess(providerId: string, latencyMs: number): void {
   else entry.averageLatencyMs = Math.round(
     (entry.averageLatencyMs + latencyMs) / 2,
   );
+  // A success means the provider recovered — clear any cooldown (local + distributed).
+  entry.cooldownUntil = null;
+  void clearDistributedCooldown(providerId);
   void persistHealth(entry);
 }
 
@@ -59,14 +115,20 @@ export function recordFailure(
   entry.failureCount += 1;
   entry.lastFailureAt = Date.now();
 
+  let cooldownMs: number;
   if (kind === "rate_limited") {
     entry.rateLimitedCount += 1;
     const base = retryAfterSec ? retryAfterSec * 1000 : RATE_LIMIT_COOLDOWN_MS;
-    entry.cooldownUntil = Date.now() + Math.max(base, 15_000);
+    cooldownMs = Math.max(base, MIN_RATE_LIMIT_COOLDOWN_MS);
+  } else if (kind === "quota") {
+    cooldownMs = QUOTA_COOLDOWN_MS;
   } else {
     // Transient failures put the provider on a short cooldown too.
-    entry.cooldownUntil = Date.now() + COOLDOWN_MS;
+    cooldownMs = COOLDOWN_MS;
   }
+
+  entry.cooldownUntil = Date.now() + cooldownMs;
+  void writeDistributedCooldown(providerId, entry.cooldownUntil);
   void persistHealth(entry);
 }
 
@@ -82,11 +144,19 @@ function persistHealth(entry: ProviderHealth): void {
   });
 }
 
-/** Whether a provider is currently cooled down. */
-export function isCooldown(providerId: string): boolean {
+/** Whether a provider is currently cooled down (checks memory + distributed). */
+export async function isCooldown(providerId: string): Promise<boolean> {
   const entry = healthByProvider.get(providerId);
-  if (!entry?.cooldownUntil) return false;
-  return Date.now() < entry.cooldownUntil;
+  if (entry?.cooldownUntil && Date.now() < entry.cooldownUntil) return true;
+
+  // Fall back to the distributed deadline so other instances' cooldowns apply.
+  const distributed = await readDistributedCooldown(providerId);
+  if (distributed !== null && Date.now() < distributed) {
+    // Mirror it in local memory so the polled path stays cheap.
+    if (entry) entry.cooldownUntil = distributed;
+    return true;
+  }
+  return false;
 }
 
 export function getHealth(providerId: string): ProviderHealth | undefined {

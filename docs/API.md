@@ -134,11 +134,21 @@ The app never calls a provider SDK directly. Every AI request goes through
 1. Classifies the request by **task** (`interview_question`, `interview_feedback`,
    `semantic_scoring`, `resume_analysis`, `job_match`, `resume_improvement`).
 2. Selects the best provider + model from `lib/ai/ai-config.ts` (Groq first for
-   latency-sensitive text; Gemini first for long-context JSON).
-3. Retries transient failures with exponential backoff (`retry-manager.ts`).
+   latency-sensitive text; Gemini first for long-context JSON), sorting candidate
+   providers by explicit `priority` — never registration order.
+3. Retries transient failures with **bounded** exponential backoff + jitter
+   (`retry-manager.ts`), honoring `Retry-After` when the provider supplies it.
 4. Fails over across providers (Groq → Gemini → Cloudflare → OpenRouter) and
-   honors provider cooldowns (`provider-health.ts`).
-5. Logs usage to `ai_usage_logs` for cost control (`lib/usage.ts`).
+   honors provider cooldowns (`provider-health.ts`). A `quota` error puts a
+   provider on a longer cooldown (deprioritization); a success clears cooldown.
+5. Applies a **per-user AI budget** guardrail (`checkAiBudget`,
+   `AI_DAILY_BUDGET` / `AI_HOURLY_BUDGET`) when a `userId` is threaded through
+   `RouteOptions` / `ChatOptions.userId`.
+6. Logs usage to `ai_usage_logs` for cost control (`lib/usage.ts`).
+
+When every provider fails, the router throws a stable
+`AIError("response", "All AI providers are temporarily unavailable")` — the
+internal reason is preserved for telemetry but never shown to the user.
 
 Errors thrown are `AIError` (`lib/ai/ai-types.ts`) with kinds:
 `unreachable | timeout | rate_limited | server_error | invalid_response | quota | config | response`.

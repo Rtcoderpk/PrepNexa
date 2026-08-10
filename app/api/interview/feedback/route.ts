@@ -118,6 +118,7 @@ export async function POST(request: NextRequest) {
       resumeContext,
       history,
       telemetry,
+      userId: user.id,
     });
 
     await saveFeedback({

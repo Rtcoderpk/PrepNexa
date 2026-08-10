@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
     const result = await matchResumeToJob(
       parsed.data.resumeText,
       parsed.data.jobDescription,
+      user.id,
     );
 
     try {

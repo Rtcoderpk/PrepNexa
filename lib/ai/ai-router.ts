@@ -2,37 +2,51 @@ import {
   AIError,
   isAIError,
   type AICapabilities,
+  type AIProvider,
   type AITask,
   type ChatOptions,
 } from "@/lib/ai/ai-types";
 import { getTaskConfig, type ModelConfig } from "@/lib/ai/ai-config";
 import { createProviders } from "@/lib/ai/providers";
-import { withRetry } from "@/lib/ai/retry-manager";
+import { withRetry, isRetryableKind } from "@/lib/ai/retry-manager";
 import {
   recordFailure,
   recordSuccess,
   isCooldown,
 } from "@/lib/ai/provider-health";
 import { beginInFlight, endInFlight, recordRequest } from "@/lib/ai/usage-manager";
-import { logAiUsage } from "@/lib/usage";
+import { logAiUsage, checkAiBudget } from "@/lib/usage";
 
 export interface RouteOptions {
   /** Optional dedup key — a concurrent identical request is not re-fired. */
   dedupKey?: string;
   /** Allow streaming (provider-dependent). */
   stream?: boolean;
+  /** Optional user id — used for per-user AI budget guardrails when set. */
+  userId?: string;
 }
 
 /**
  * Picks the ordered list of providers capable of this task, honoring health
  * cooldowns. Filtered for capabilities and task suitability.
  */
-function candidateProviders(task: AITask, capabilities: AICapabilities | undefined) {
-  return createProviders().filter((p) => {
-    if (isCooldown(p.id)) return false;
-    if (!p.supports(task, capabilities)) return false;
-    return true;
-  });
+async function candidateProviders(
+  task: AITask,
+  capabilities: AICapabilities | undefined,
+): Promise<AIProvider[]> {
+  const providers = createProviders();
+  const cooledDown = await Promise.all(
+    providers.map((p) => isCooldown(p.id)),
+  );
+  return providers
+    .filter((p, i) => {
+      if (cooledDown[i]) return false;
+      if (!p.supports(task, capabilities)) return false;
+      return true;
+    })
+    // Deterministic priority ordering (lower `priority` tried first). Never
+    // rely on array registration order.
+    .sort((a, b) => a.priority - b.priority);
 }
 
 function resolveModel(task: AITask): ModelConfig[] {
@@ -52,81 +66,124 @@ export async function generateAIResponse(
   const task = options.task;
   const capabilities = options.capabilities;
 
-  if (routeOptions.dedupKey) {
-    if (!beginInFlight(task, routeOptions.dedupKey)) {
-      throw new AIError("response", "A similar request is already in progress");
-    }
+  const dedupStarted = routeOptions.dedupKey
+    ? beginInFlight(task, routeOptions.dedupKey)
+    : true;
+  if (!dedupStarted) {
+    throw new AIError("response", "A similar request is already in progress");
   }
 
   recordRequest(task);
 
-  const models = resolveModel(task);
-  const providers = candidateProviders(task, capabilities);
-
-  if (providers.length === 0) {
-    throw new AIError(
-      "config",
-      "No AI provider is currently available. Please try again in a moment.",
-    );
-  }
-
-  let lastError: unknown = null;
-
-  // Attempt each (model) in order; for each, try every capable provider.
-  for (const model of models) {
-    const capable = providers.filter((p) =>
-      p.supports(task, capabilities),
-    );
-    for (const provider of capable) {
-      const started = Date.now();
-      try {
-        const result = await withRetry(
-          () =>
-            provider.chat({
-              ...options,
-              task,
-              providerId: provider.id,
-              model: model.model,
-              maxOutputTokens: options.maxOutputTokens ?? model.maxTokens,
-            }),
-          { maxAttempts: options.task === "interview_feedback" ? 2 : 3 },
-        );
-        recordSuccess(provider.id, Date.now() - started);
-        void logAiUsage({
-          task,
-          provider: provider.id,
-          model: model.model,
-          success: true,
-          latencyMs: Date.now() - started,
-        });
-        return result;
-      } catch (error) {
-        lastError = error;
-        const kind = isAIError(error) ? error.kind : "response";
-        recordFailure(provider.id, kind, isAIError(error) ? error.retryAfterSec : undefined);
-        void logAiUsage({
-          task,
-          provider: provider.id,
-          model: model.model,
-          success: false,
-          errorKind: kind,
-          latencyMs: Date.now() - started,
-        });
-
-        // Config/invalid-response are not worth failing over for — propagate.
-        if (isAIError(error) && (error.kind === "config" || error.kind === "invalid_response")) {
-          throw error;
-        }
-        // Continue to the next provider.
+  try {
+    // Per-user AI budget guardrail (server-side cost control). Best-effort.
+    if (routeOptions.userId) {
+      const budget = await checkAiBudget(routeOptions.userId);
+      if (!budget.allowed) {
+        throw new AIError("response", "You've reached your AI usage limit for now. Please try again later.");
       }
     }
+
+    const models = resolveModel(task);
+    const providers = await candidateProviders(task, capabilities);
+
+    if (providers.length === 0) {
+      throw new AIError(
+        "config",
+        "No AI provider is currently available. Please try again in a moment.",
+      );
+    }
+
+    let lastError: unknown = null;
+
+    // Attempt each (model) in order; for each, try every capable provider.
+    for (const model of models) {
+      const capable = providers.filter((p) =>
+        p.supports(task, capabilities),
+      );
+      for (const provider of capable) {
+        const started = Date.now();
+        try {
+          const result = await withRetry(
+            () =>
+              provider.chat({
+                ...options,
+                task,
+                providerId: provider.id,
+                model: model.model,
+                maxOutputTokens: options.maxOutputTokens ?? model.maxTokens,
+              }),
+            {
+              maxAttempts: options.task === "interview_feedback" ? 2 : 3,
+              onRetryableError: (err) => {
+                const kind = isAIError(err) ? err.kind : "response";
+                // Record health on the FIRST retryable error (not after retries
+                // exhaust) so cooldowns/counters are truthful.
+                recordFailure(
+                  provider.id,
+                  kind,
+                  isAIError(err) ? err.retryAfterSec : undefined,
+                );
+                void logAiUsage({
+                  task,
+                  provider: provider.id,
+                  model: model.model,
+                  success: false,
+                  errorKind: kind,
+                  latencyMs: Date.now() - started,
+                });
+              },
+            },
+          );
+          recordSuccess(provider.id, Date.now() - started);
+          void logAiUsage({
+            task,
+            provider: provider.id,
+            model: model.model,
+            success: true,
+            latencyMs: Date.now() - started,
+          });
+          return result;
+        } catch (error) {
+          lastError = error;
+          // Non-retryable errors (config/invalid_response) were NOT health-
+          // recorded by withRetry — record them here once.
+          if (!isAIError(error) || !isRetryableKind(error.kind)) {
+            const kind = isAIError(error) ? error.kind : "response";
+            recordFailure(provider.id, kind, isAIError(error) ? error.retryAfterSec : undefined);
+            void logAiUsage({
+              task,
+              provider: provider.id,
+              model: model.model,
+              success: false,
+              errorKind: kind,
+              latencyMs: Date.now() - started,
+            });
+          }
+
+          // Config/invalid-response are not worth failing over for — propagate.
+          if (isAIError(error) && (error.kind === "config" || error.kind === "invalid_response")) {
+            throw error;
+          }
+          // Continue to the next provider.
+        }
+      }
+    }
+
+    // All providers failed. Preserve the real internal reason for telemetry
+    // (it stays in lastError/logAiUsage), but surface a stable, non-sensitive
+    // error to the caller. Config errors indicate misconfiguration and are
+    // propagated as-is so ops can see the real cause.
+    if (lastError instanceof AIError && lastError.kind === "config") {
+      throw lastError;
+    }
+    throw new AIError("response", "All AI providers are temporarily unavailable", {
+      providerId: isAIError(lastError) ? lastError.providerId : undefined,
+    });
+  } finally {
+    // Guarantee in-flight state is released even on early throws.
+    if (routeOptions.dedupKey) endInFlight(task, routeOptions.dedupKey);
   }
-
-  if (routeOptions.dedupKey) endInFlight(task, routeOptions.dedupKey);
-
-  throw lastError instanceof AIError
-    ? lastError
-    : new AIError("response", "All AI providers are temporarily unavailable");
 }
 
 export async function generateAIStream(
@@ -135,7 +192,16 @@ export async function generateAIStream(
 ): Promise<AsyncIterable<string>> {
   const task = options.task;
   const capabilities = options.capabilities;
-  const providers = candidateProviders(task, capabilities);
+
+  // Per-user AI budget guardrail (server-side cost control). Best-effort.
+  if (routeOptions.userId) {
+    const budget = await checkAiBudget(routeOptions.userId);
+    if (!budget.allowed) {
+      throw new AIError("response", "You've reached your AI usage limit for now. Please try again later.");
+    }
+  }
+
+  const providers = await candidateProviders(task, capabilities);
 
   if (providers.length === 0) {
     throw new AIError("config", "No AI provider is currently available. Please try again in a moment.");

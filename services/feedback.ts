@@ -29,6 +29,7 @@ export async function generateFeedback(params: {
   resumeContext?: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
   telemetry?: FeedbackTelemetry[];
+  userId?: string;
 }): Promise<InterviewFeedbackReport> {
   const provider = createLLMProvider();
 
@@ -52,6 +53,7 @@ export async function generateFeedback(params: {
         temperature: 0.3,
         maxOutputTokens: 3000,
         format: "json",
+        userId: params.userId,
       });
 
       const parsed = parseFeedbackReportJson(raw);

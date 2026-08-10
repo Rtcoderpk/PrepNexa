@@ -78,7 +78,10 @@ export class CloudflareProvider implements AIProvider {
 
   private mapError(status: number, body: string): AIError {
     if (status === 429) {
-      return new AIError("rate_limited", "Cloudflare rate limit hit", { providerId: this.id });
+      return new AIError("rate_limited", "Cloudflare rate limit hit", {
+        providerId: this.id,
+        retryAfterSec: parseRetryAfter(body),
+      });
     }
     if (status >= 500) {
       return new AIError("server_error", `Cloudflare server error (${status})`, { providerId: this.id });
@@ -87,4 +90,10 @@ export class CloudflareProvider implements AIProvider {
       providerId: this.id,
     });
   }
+}
+
+/** Parses Retry-After (seconds) from a Cloudflare error body when present. */
+function parseRetryAfter(body: string): number | undefined {
+  const match = body.match(/"retry-after"\s*:\s*(\d+)/i);
+  return match ? Number(match[1]) : undefined;
 }

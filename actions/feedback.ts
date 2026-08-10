@@ -62,6 +62,7 @@ export async function generateInterviewFeedbackAction(params: {
       resumeContext,
       history: params.history,
       telemetry,
+      userId: user.id,
     });
   } catch (error) {
     throw new Error(friendlyAIErrorMessage(error));

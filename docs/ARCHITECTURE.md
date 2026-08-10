@@ -52,12 +52,23 @@ with a single production adapter that routes every call through
   `semantic_scoring`, `resume_analysis`, `job_match`, `resume_improvement`);
 - picks the best provider/model from `lib/ai/ai-config.ts` (Groq first for
   latency-sensitive text, Gemini first for long-context JSON-heavy feedback);
-- retries transient failures with exponential backoff (`retry-manager.ts`);
+- sorts candidate providers by explicit `priority` (Groq → Gemini → Cloudflare
+  → OpenRouter), never by registration order;
+- retries transient failures with **bounded** exponential backoff + jitter
+  (`retry-manager.ts`), honoring `Retry-After` when supplied;
 - fails over across providers; honors provider cooldowns (`provider-health.ts`);
-- never exposes raw provider errors (see `friendly-errors.ts`).
+  a `quota` error puts a provider on a longer cooldown (deprioritization) and a
+  success clears cooldown (recovery);
+- applies a **per-user AI budget** guardrail (`lib/usage.ts:checkAiBudget`,
+  `AI_DAILY_BUDGET` / `AI_HOURLY_BUDGET`) to cap a single user's consumption;
+- guarantees in-flight dedup state is released via `try/finally` even on error;
+- surfaces a stable "All AI providers are temporarily unavailable" error when
+  every provider fails (internal reason preserved for telemetry), and never
+  exposes raw provider errors or API keys (see `friendly-errors.ts`).
 
 Providers live in `lib/ai/providers/*` (groq, gemini, cloudflare, openrouter).
-Keys are read server-side only via `lib/env.ts`.
+Keys are read server-side only via `lib/env.ts`; Gemini URLs are never logged
+with the embedded API key (see `redactedUrl`).
 
 ### ADR-3: Next.js Route Handlers are the primary API; Server Actions for forms
 Server Actions for auth/setup/upload (native form semantics, revalidation),

@@ -153,6 +153,7 @@ export async function POST(request: NextRequest) {
         category: m.category,
       })),
       isFollowUp,
+      userId: user.id,
     });
 
     const isComplete = isCompletionMessage(generated.content);

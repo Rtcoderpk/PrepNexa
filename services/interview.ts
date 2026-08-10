@@ -99,6 +99,7 @@ export async function generateOpeningQuestion(params: {
   jobDescription?: string;
   history: ChatMessage[];
   totalQuestions: number;
+  userId?: string;
 }): Promise<{ content: string; category: QuestionCategory }> {
   const provider = createLLMProvider();
   const category: QuestionCategory = "introduction";
@@ -124,6 +125,7 @@ export async function generateOpeningQuestion(params: {
     ],
     temperature: 0.7,
     maxOutputTokens: 300,
+    userId: params.userId,
   });
 
   return { content, category };
@@ -136,6 +138,7 @@ export async function generateNextQuestion(params: {
   history: ChatMessage[];
   latestAnswer?: string;
   isFollowUp?: boolean;
+  userId?: string;
 }): Promise<{
   content: string;
   category: QuestionCategory;
@@ -189,6 +192,7 @@ export async function generateNextQuestion(params: {
     ],
     temperature: 0.7,
     maxOutputTokens: 300,
+    userId: params.userId,
   });
 
   return {

@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const parsed = await parseResumePdf(file);
-    const result = await analyzeResume(parsed.text);
+    const result = await analyzeResume(parsed.text, user.id);
 
     const { count } = await consumeResumeAnalysis(user.id);
 

@@ -29,6 +29,7 @@ export interface SemanticEvaluator {
     answer: string;
     role?: string;
     resumeContext?: string;
+    userId?: string;
   }): Promise<SemanticEvaluation>;
 }
 
@@ -38,6 +39,7 @@ export async function evaluateAnswer(
     answer: string;
     role?: string;
     resumeContext?: string;
+    userId?: string;
   },
   _scoringClient?: SemanticScoringClient,
 ): Promise<SemanticEvaluation> {
@@ -75,6 +77,7 @@ Return a SINGLE valid JSON object, no markdown, no commentary:
       temperature: 0.2,
       format: "json",
       maxOutputTokens: 300,
+      userId: params.userId,
     });
 
     const { score, reason } = parseLlmJudgment(llmRaw);

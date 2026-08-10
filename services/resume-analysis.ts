@@ -233,7 +233,10 @@ const MAX_JD_CHARS = 8000;
 const MAX_BULLETS = 7;
 
 /** Analyzes a resume: ATS compatibility + overall quality + improvements. */
-export async function analyzeResume(text: string): Promise<ResumeAnalysisResult> {
+export async function analyzeResume(
+  text: string,
+  userId?: string,
+): Promise<ResumeAnalysisResult> {
   const resume = normalizeResumeText(text);
   const provider = createLLMProvider();
 
@@ -246,6 +249,7 @@ export async function analyzeResume(text: string): Promise<ResumeAnalysisResult>
       temperature: 0.2,
       format: "json",
       maxOutputTokens: 3000,
+      userId,
     }),
     provider.chat({
       task: "resume_improvement",
@@ -254,6 +258,7 @@ export async function analyzeResume(text: string): Promise<ResumeAnalysisResult>
       temperature: 0.3,
       format: "json",
       maxOutputTokens: 2000,
+      userId,
     }).catch(() => ""),
   ]);
 
@@ -299,6 +304,7 @@ export async function analyzeResume(text: string): Promise<ResumeAnalysisResult>
 export async function matchResumeToJob(
   resumeText: string,
   jobDescription: string,
+  userId?: string,
 ): Promise<JobMatch> {
   const resume = normalizeResumeText(resumeText);
   const jd = sanitizeInput(jobDescription).slice(0, MAX_JD_CHARS);
@@ -311,6 +317,7 @@ export async function matchResumeToJob(
     temperature: 0.2,
     format: "json",
     maxOutputTokens: 2000,
+    userId,
   });
 
   const parsed = jobMatchSchema.safeParse(extractJson(raw));

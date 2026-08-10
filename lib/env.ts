@@ -22,6 +22,9 @@ export interface Env {
   rateLimitStore: "memory" | "redis";
   redisUrl: string | null;
   feedbackQueue: "off" | "redis";
+  /** Per-user AI budget guardrails (server-side, cost control). */
+  aiDailyBudget: number;
+  aiHourlyBudget: number;
 }
 
 function required(name: string): string {
@@ -110,6 +113,9 @@ export function getEnv(): Env {
     rateLimitStore: store,
     redisUrl,
     feedbackQueue,
+    // 0 disables the budget guard (set explicit limits to enable).
+    aiDailyBudget: parseIntRange("AI_DAILY_BUDGET", 0, 0, 1_000_000),
+    aiHourlyBudget: parseIntRange("AI_HOURLY_BUDGET", 0, 0, 100_000),
   };
 }
 

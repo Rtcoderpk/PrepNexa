@@ -30,27 +30,33 @@ export { env as llmEnv };
 /** ILLMProvider adapter over the intelligent AI router. */
 class RoutedLLMProvider implements ILLMProvider {
   async chat(options: ChatOptions): Promise<string> {
-    return generateAIResponse({
-      task: options.task ?? "interview_question",
-      system: options.system,
-      messages: options.messages,
-      temperature: options.temperature,
-      maxOutputTokens: options.maxOutputTokens,
-      timeoutMs: options.timeoutMs,
-      format: options.format,
-    });
+    return generateAIResponse(
+      {
+        task: options.task ?? "interview_question",
+        system: options.system,
+        messages: options.messages,
+        temperature: options.temperature,
+        maxOutputTokens: options.maxOutputTokens,
+        timeoutMs: options.timeoutMs,
+        format: options.format,
+      },
+      { userId: options.userId },
+    );
   }
 
   async *stream(options: ChatOptions): AsyncIterable<string> {
-    const iterable = await generateAIStream({
-      task: options.task ?? "interview_question",
-      system: options.system,
-      messages: options.messages,
-      temperature: options.temperature,
-      maxOutputTokens: options.maxOutputTokens,
-      timeoutMs: options.timeoutMs,
-      format: options.format,
-    });
+    const iterable = await generateAIStream(
+      {
+        task: options.task ?? "interview_question",
+        system: options.system,
+        messages: options.messages,
+        temperature: options.temperature,
+        maxOutputTokens: options.maxOutputTokens,
+        timeoutMs: options.timeoutMs,
+        format: options.format,
+      },
+      { userId: options.userId },
+    );
     for await (const chunk of iterable) {
       yield chunk;
     }

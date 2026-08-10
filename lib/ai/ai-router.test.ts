@@ -1,0 +1,298 @@
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { AIError, type AIProvider, type AITask, type ChatOptions } from "@/lib/ai/ai-types";
+import { withRetry, isRetryableKind } from "@/lib/ai/retry-manager";
+import { generateAIResponse, generateAIStream } from "@/lib/ai/ai-router";
+import {
+  recordFailure,
+  recordSuccess,
+  resetProviderHealth,
+  isCooldown,
+} from "@/lib/ai/provider-health";
+import { redactedUrl } from "@/lib/ai/providers/gemini";
+
+// ---- Fakes / mocks ------------------------------------------------
+function fakeProvider(
+  id: string,
+  priority: number,
+  behavior: "ok" | "fail" | "rate" | "quota" | "timeout" | "invalid" = "ok",
+): AIProvider {
+  return {
+    id,
+    priority,
+    supports: () => true,
+    async chat(_options: ChatOptions): Promise<string> {
+      if (behavior === "fail") throw new AIError("server_error", `${id} down`, { providerId: id });
+      if (behavior === "rate") throw new AIError("rate_limited", `${id} limited`, { providerId: id, retryAfterSec: 2 });
+      if (behavior === "quota") throw new AIError("quota", `${id} quota`, { providerId: id });
+      if (behavior === "timeout") throw new AIError("timeout", `${id} timeout`, { providerId: id });
+      if (behavior === "invalid") throw new AIError("invalid_response", `${id} bad`, { providerId: id });
+      return `reply from ${id}`;
+    },
+    async ping() {
+      return true;
+    },
+  };
+}
+
+// Small typed helper so the test can inject a provider list into the router.
+const testProviders: AIProvider[] = [];
+function setProviders(list: AIProvider[]): void {
+  testProviders.splice(0, testProviders.length, ...list);
+}
+
+// Mock lib/ai/providers + usage + redis so tests don't need live infra.
+vi.mock("@/lib/ai/providers", () => ({
+  createProviders: () => [...testProviders],
+}));
+
+vi.mock("@/lib/redis", () => ({
+  getRedis: async () => null,
+}));
+
+// Lifted budget mock so individual tests can override the result.
+const budgetMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/usage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/usage")>();
+  return {
+    ...actual,
+    checkAiBudget: budgetMock,
+    logAiUsage: async () => {},
+    persistProviderHealth: async () => {},
+  };
+});
+
+beforeEach(() => {
+  vi.resetModules();
+  resetProviderHealth();
+  budgetMock.mockReset().mockResolvedValue({ allowed: true });
+  setProviders([]);
+});
+
+afterEach(() => {
+  setProviders([]);
+});
+
+const task: AITask = "interview_question";
+
+// ---- withRetry: backoff + Retry-After + bounded -------------------
+describe("withRetry", () => {
+  it("isRetryableKind marks transient kinds only", () => {
+    expect(isRetryableKind("rate_limited")).toBe(true);
+    expect(isRetryableKind("timeout")).toBe(true);
+    expect(isRetryableKind("server_error")).toBe(true);
+    expect(isRetryableKind("config")).toBe(false);
+    expect(isRetryableKind("invalid_response")).toBe(false);
+    expect(isRetryableKind("quota")).toBe(false);
+  });
+
+  it("does not retry config errors (fail fast)", async () => {
+    const fn = vi.fn().mockRejectedValue(new AIError("config", "no key"));
+    await expect(withRetry(fn, { maxAttempts: 3 })).rejects.toThrow("no key");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("respects maxAttempts (bounded — no infinite retry)", async () => {
+    const fn = vi.fn().mockRejectedValue(new AIError("timeout", "t"));
+    await expect(withRetry(fn, { maxAttempts: 2, baseDelayMs: 1 })).rejects.toThrow("t");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries retryable kinds and succeeds", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new AIError("server_error", "first"))
+      .mockResolvedValueOnce("ok");
+    await expect(withRetry(fn, { maxAttempts: 2, baseDelayMs: 1 })).resolves.toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("honors Retry-After by waiting at least that long", async () => {
+    const t0 = Date.now();
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new AIError("rate_limited", "r", { retryAfterSec: 2 }))
+      .mockResolvedValueOnce("ok");
+    await expect(withRetry(fn, { maxAttempts: 2, baseDelayMs: 1 })).resolves.toBe("ok");
+    // Retry-After 2s dominates the tiny backoff.
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1900);
+  });
+});
+
+// ---- Router: priority + fallback + all-fail ------------------------
+describe("generateAIResponse", () => {
+  it("tries providers in priority order (deterministic, not registration order)", async () => {
+    // Registration order deliberately reversed; priority must win.
+    setProviders([
+      fakeProvider("openrouter", 40, "ok"),
+      fakeProvider("groq", 10, "fail"),
+      fakeProvider("gemini", 20, "ok"),
+      fakeProvider("cloudflare", 30, "ok"),
+    ]);
+    const result = await generateAIResponse({ task, messages: [] });
+    expect(result).toBe("reply from gemini"); // groq failed first, gemini next.
+  });
+
+  it("fails over when the first provider errors", async () => {
+    setProviders([
+      fakeProvider("groq", 10, "fail"),
+      fakeProvider("gemini", 20, "ok"),
+    ]);
+    await expect(generateAIResponse({ task, messages: [] })).resolves.toBe("reply from gemini");
+  });
+
+  it("propagates config errors without failover", async () => {
+    const cfg = fakeProvider("groq", 10, "ok");
+    cfg.chat = async () => {
+      throw new AIError("config", "Groq API key not configured", { providerId: "groq" });
+    };
+    setProviders([
+      cfg,
+      fakeProvider("gemini", 20, "ok"),
+    ]);
+    await expect(generateAIResponse({ task, messages: [] })).rejects.toMatchObject({ kind: "config" });
+  });
+
+  it("returns a stable error when ALL providers fail", async () => {
+    // quota is non-retryable (fails fast, no heavy backoff) but still fails over,
+    // so the all-fail handler is reached quickly.
+    setProviders([
+      fakeProvider("groq", 10, "quota"),
+      fakeProvider("gemini", 20, "quota"),
+    ]);
+    const err = await generateAIResponse({ task, messages: [] }).catch((e) => e);
+    expect(err).toBeInstanceOf(AIError);
+    expect(err.message).toBe("All AI providers are temporarily unavailable");
+  });
+
+  it("skips providers currently in cooldown", async () => {
+    recordFailure("groq", "rate_limited", 60);
+    setProviders([
+      fakeProvider("groq", 10, "ok"),
+      fakeProvider("gemini", 20, "ok"),
+    ]);
+    // groq is in cooldown → gemini handles it.
+    await expect(generateAIResponse({ task, messages: [] })).resolves.toBe("reply from gemini");
+  });
+});
+
+// ---- Cooldown behavior + recovery ---------------------------------
+describe("cooldowns", () => {
+  it("rate_limited sets a cooldown (min 15s)", async () => {
+    recordFailure("groq", "rate_limited");
+    expect(await isCooldown("groq")).toBe(true);
+  });
+
+  it("quota sets a longer cooldown", async () => {
+    recordFailure("gemini", "quota");
+    expect(await isCooldown("gemini")).toBe(true);
+  });
+
+  it("success clears the cooldown (provider recovery)", async () => {
+    recordFailure("groq", "rate_limited");
+    expect(await isCooldown("groq")).toBe(true);
+    recordSuccess("groq", 200);
+    expect(await isCooldown("groq")).toBe(false);
+  });
+
+  it("transient failure records a short cooldown", async () => {
+    recordFailure("cloudflare", "server_error");
+    expect(await isCooldown("cloudflare")).toBe(true);
+  });
+});
+
+// ---- In-flight cleanup --------------------------------------------
+describe("in-flight cleanup", () => {
+  it("releases in-flight state when a config error throws mid-dispatch", async () => {
+    const cfg = fakeProvider("groq", 10, "ok");
+    cfg.chat = async () => {
+      throw new AIError("config", "no key", { providerId: "groq" });
+    };
+    setProviders([
+      cfg,
+      fakeProvider("gemini", 20, "ok"),
+    ]);
+    await expect(
+      generateAIResponse({ task, messages: [] }, { dedupKey: "k1" }),
+    ).rejects.toMatchObject({ kind: "config" });
+
+    // A second call with the same dedup key must NOT be blocked as in-flight.
+    await expect(generateAIResponse({ task, messages: [] }, { dedupKey: "k1" })).resolves.toBe(
+      "reply from gemini",
+    );
+  });
+});
+
+// ---- Gemini key redaction -----------------------------------------
+describe("Gemini URL redaction", () => {
+  it("redacts the API key from the logged URL", () => {
+    process.env.GEMINI_API_KEY = "AIzaSOMEKEYVALUE12345678901234567890";
+    const url = redactedUrl("gemini-2.0-flash");
+    expect(url).not.toContain("AIza");
+    expect(url).toContain("key=<REDACTED>");
+    delete process.env.GEMINI_API_KEY;
+  });
+});
+
+// ---- Per-user AI budget guardrail --------------------------------
+describe("per-user AI budget (RouteOptions.userId)", () => {
+  it("blocks a request when the budget is exceeded", async () => {
+    budgetMock.mockResolvedValue({ allowed: false, reason: "daily" });
+    setProviders([
+      fakeProvider("groq", 10, "ok"),
+    ]);
+    await expect(
+      generateAIResponse({ task, messages: [] }, { userId: "user-1" }),
+    ).rejects.toThrow("AI usage limit");
+  });
+
+  it("allows through when within budget", async () => {
+    budgetMock.mockResolvedValue({ allowed: true });
+    setProviders([
+      fakeProvider("groq", 10, "ok"),
+    ]);
+    await expect(
+      generateAIResponse({ task, messages: [] }, { userId: "user-1" }),
+    ).resolves.toBe("reply from groq");
+  });
+});
+
+// ---- Quota deprioritization + recovery ----------------------------
+describe("quota-aware deprioritization", () => {
+  it("puts a quota'd provider on cooldown so the next provider is used", async () => {
+    setProviders([
+      fakeProvider("groq", 10, "quota"),
+      fakeProvider("gemini", 20, "ok"),
+    ]);
+    // First request: groq quota-fails → gemini succeeds.
+    await expect(generateAIResponse({ task, messages: [] })).resolves.toBe("reply from gemini");
+    // groq should now be in cooldown.
+    expect(await isCooldown("groq")).toBe(true);
+  });
+
+  it("recovers after cooldown clears", async () => {
+    setProviders([
+      fakeProvider("groq", 10, "ok"),
+      fakeProvider("gemini", 20, "ok"),
+    ]);
+    recordFailure("groq", "quota"); // e.g. 120s cooldown
+    expect(await isCooldown("groq")).toBe(true);
+    recordSuccess("groq", 150); // a later success marks recovery
+    expect(await isCooldown("groq")).toBe(false);
+    // Provider is routable again.
+    await expect(generateAIResponse({ task, messages: [] })).resolves.toBe("reply from groq");
+  });
+});
+
+// ---- Streaming fallback --------------------------------------------
+describe("generateAIStream", () => {
+  it("falls back to a non-streamed response when no provider streams", async () => {
+    const streamless = fakeProvider("groq", 10, "ok");
+    delete streamless.stream;
+    setProviders([streamless]);
+    const iterable = await generateAIStream({ task, messages: [] });
+    const chunks: string[] = [];
+    for await (const c of iterable) chunks.push(c);
+    expect(chunks.join("")).toBe("reply from groq");
+  });
+});
