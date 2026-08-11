@@ -251,11 +251,14 @@ describe("Gemini URL redaction", () => {
 
 // ---- Per-user AI budget guardrail --------------------------------
 describe("per-user AI budget (RouteOptions.userId)", () => {
-  it("blocks a request when the budget is exceeded", async () => {
+  it("blocks a request when the budget is exceeded (kind=budget_limit)", async () => {
     reserveMock.mockResolvedValue({ allowed: false, reason: "daily" });
     setProviders([
       fakeProvider("groq", 10, "ok"),
     ]);
+    await expect(
+      generateAIResponse({ task, messages: [] }, { userId: "user-1" }),
+    ).rejects.toMatchObject({ kind: "budget_limit" });
     await expect(
       generateAIResponse({ task, messages: [] }, { userId: "user-1" }),
     ).rejects.toThrow("AI usage limit");

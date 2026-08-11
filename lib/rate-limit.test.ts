@@ -139,3 +139,45 @@ describe("resume budget-limit flag (P7-F4)", () => {
     expect(src).toContain("friendlyAIErrorMessage");
   });
 });
+
+// ---- P8-B/C/D: interview routes surface the budget-limit signal ----
+describe("interview routes budget-limit signal (P8)", () => {
+  it("opening route uses aiErrorPayload (budgetLimit contract) and drops the masking call", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("app/api/interview/opening/route.ts", "utf8");
+    expect(src).toContain("aiErrorPayload");
+    // aiErrorPayload is what produces budgetLimit in the JSON response.
+    expect(src).not.toContain("friendlyAIErrorMessage(");
+  });
+
+  it("respond route uses aiErrorPayload (budgetLimit contract)", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("app/api/interview/respond/route.ts", "utf8");
+    expect(src).toContain("aiErrorPayload");
+    expect(src).not.toContain("friendlyAIErrorMessage(");
+  });
+
+  it("feedback route uses aiErrorPayload (budgetLimit contract)", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("app/api/interview/feedback/route.ts", "utf8");
+    expect(src).toContain("aiErrorPayload");
+    expect(src).not.toContain("friendlyAIErrorMessage(");
+  });
+});
+
+// ---- P8-E: the interview client recognizes the budget-limit signal ----
+describe("interview client budget UX (P8-E)", () => {
+  it("interview-chat detects AiResponseError.budgetLimit for the budget toast", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("components/interview/interview-chat.tsx", "utf8");
+    expect(src).toContain("AiResponseError");
+    expect(src).toContain("error.budgetLimit");
+    expect(src).toContain("isBudgetLimitError(error)");
+  });
+
+  it("interview-chat feedback fetch surfaces a budgetLimit-specific toast", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("components/interview/interview-chat.tsx", "utf8");
+    expect(src).toContain("data.budgetLimit");
+  });
+});

@@ -1,6 +1,7 @@
 import {
   AIError,
   isAIError,
+  AI_BUDGET_LIMIT_MESSAGE,
   type AICapabilities,
   type AIProvider,
   type AITask,
@@ -85,7 +86,7 @@ export async function generateAIResponse(
     if (routeOptions.userId) {
       const budget = await reserveAiBudget(routeOptions.userId);
       if (!budget.allowed) {
-        throw new AIError("response", "You've reached your AI usage limit for now. Please try again later.");
+        throw new AIError("budget_limit", AI_BUDGET_LIMIT_MESSAGE);
       }
       budgetReserved = true;
     }
@@ -262,7 +263,7 @@ export async function generateAIStream(
     const budget = await reserveAiBudget(routeOptions.userId);
     if (!budget.allowed) {
       if (dedupStarted) endInFlight(task, routeOptions.dedupKey!);
-      throw new AIError("response", "You've reached your AI usage limit for now. Please try again later.");
+      throw new AIError("budget_limit", AI_BUDGET_LIMIT_MESSAGE);
     }
     budgetReserved = true;
   }

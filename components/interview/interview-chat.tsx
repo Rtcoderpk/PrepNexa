@@ -13,6 +13,7 @@ import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { useVisionMetrics } from "@/hooks/use-vision-metrics";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { respondAction } from "@/actions/respond";
+import { AiResponseError } from "@/lib/ai/friendly-errors";
 import { analyzeTranscriptMetrics } from "@/services/speech-metrics";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -265,6 +266,12 @@ export function InterviewChat({
 
       const data = await response.json();
       if (!response.ok) {
+        if (data.budgetLimit) {
+          throw new AiResponseError(
+            "You've reached your AI usage limit for now. Please try again later.",
+            true,
+          );
+        }
         throw new Error(data.error ?? "Failed to generate feedback");
       }
 
@@ -275,9 +282,11 @@ export function InterviewChat({
       router.push(`/interview/${info.id}/results`);
     } catch (error) {
       toast.error(
-        error instanceof Error
+        error instanceof AiResponseError
           ? error.message
-          : "Failed to generate feedback. Please refresh the results page.",
+          : error instanceof Error
+            ? error.message
+            : "Failed to generate feedback. Please refresh the results page.",
       );
       router.push(`/interview/${info.id}/results`);
     } finally {
@@ -353,7 +362,10 @@ export function InterviewChat({
         setIsThinking(false);
         // Never surface raw provider errors. AI failures preserve the answer
         // (persisted server-side) so the interview can continue/reconnect.
-        if (isBudgetLimitError(error)) {
+        if (
+          isBudgetLimitError(error) ||
+          (error instanceof AiResponseError && error.budgetLimit)
+        ) {
           toast.error(
             "You've reached your AI usage limit for now. Please try again later.",
           );

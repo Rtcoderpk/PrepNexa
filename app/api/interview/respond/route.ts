@@ -9,7 +9,7 @@ import {
   clampSpeech,
   clampVision,
 } from "@/services/telemetry";
-import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
+import { aiErrorPayload } from "@/lib/ai/friendly-errors";
 
 export const runtime = "nodejs";
 
@@ -204,11 +204,6 @@ export async function POST(request: NextRequest) {
       questionId: questionRow.id,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: friendlyAIErrorMessage(error),
-      },
-      { status: 500 },
-    );
+    return NextResponse.json(aiErrorPayload(error), { status: 500 });
   }
 }

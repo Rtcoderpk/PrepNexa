@@ -6,7 +6,7 @@ import {
   enqueueFeedback,
   isFeedbackQueued,
 } from "@/lib/feedback-queue";
-import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
+import { aiErrorPayload } from "@/lib/ai/friendly-errors";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -129,11 +129,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ feedback: report });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: friendlyAIErrorMessage(error),
-      },
-      { status: 500 },
-    );
+    return NextResponse.json(aiErrorPayload(error), { status: 500 });
   }
 }

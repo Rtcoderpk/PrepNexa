@@ -7,7 +7,11 @@ import { respondInterviewSchema, respondTelemetrySchema } from "@/lib/validation
 import { generateNextQuestion, isCompletionMessage } from "@/services/interview";
 import { persistAnswerTelemetry, clampSpeech, clampVision } from "@/services/telemetry";
 import { semanticEvaluator, toTenScale } from "@/services/semantic-eval";
-import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
+import {
+  friendlyAIErrorMessage,
+  isBudgetLimitError,
+  AiResponseError,
+} from "@/lib/ai/friendly-errors";
 import type { ChatMessage, QuestionCategory } from "@/types/interview";
 
 export interface RespondResult {
@@ -16,6 +20,8 @@ export interface RespondResult {
   isFollowUp: boolean;
   isComplete: boolean;
   questionId: string;
+  /** True when the AI per-user budget rejected the request. */
+  budgetLimit?: boolean;
 }
 
 export async function respondAction(params: {
@@ -167,8 +173,12 @@ export async function respondAction(params: {
     generated = results[0];
   } catch (error) {
     // The answer + telemetry were already persisted above — the interview is
-    // never destroyed by an AI failure. Surface a calm, friendly message.
-    throw new Error(friendlyAIErrorMessage(error));
+    // never destroyed by an AI failure. Surface a calm, friendly message and
+    // carry the budget-limit signal so the client shows the specific UX.
+    throw new AiResponseError(
+      friendlyAIErrorMessage(error),
+      isBudgetLimitError(error),
+    );
   }
 
   const isComplete = isCompletionMessage(generated.content);

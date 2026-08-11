@@ -99,7 +99,8 @@ export type AIErrorKind =
   | "invalid_response"
   | "quota"
   | "config"
-  | "response";
+  | "response"
+  | "budget_limit";
 
 export class AIError extends Error {
   readonly kind: AIErrorKind;
@@ -128,3 +129,7 @@ export function isAIError(error: unknown): error is AIError {
 export function userFacingAIError(): string {
   return "AI is temporarily busy. We're automatically switching to another AI engine.";
 }
+
+/** The exact user-facing message for the per-user AI budget guardrail. */
+export const AI_BUDGET_LIMIT_MESSAGE =
+  "You've reached your AI usage limit for now. Please try again later.";
