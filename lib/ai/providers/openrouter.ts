@@ -66,10 +66,20 @@ export class OpenRouterProvider implements AIProvider {
     }
 
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{
+        message?: { content?: string; reasoning?: string; reasoning_content?: string };
+      }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
-    const content = data.choices?.[0]?.message?.content?.trim();
+    const message = data.choices?.[0]?.message;
+    // Prefer normal assistant content; some auto-routed reasoning models put the
+    // output in `reasoning`/`reasoning_content` with an empty `content`. Fall back
+    // to those so the response is usable rather than treated as malformed.
+    const content =
+      message?.content?.trim() ||
+      message?.reasoning?.trim() ||
+      message?.reasoning_content?.trim() ||
+      "";
     if (!content) throw new AIError("invalid_response", "OpenRouter returned an empty response", { providerId: this.id });
     const usage = data.usage
       ? {

@@ -44,7 +44,7 @@ export class GeminiProvider implements AIProvider {
   async chatWithUsage(options: ChatOptions): Promise<ChatResult> {
     if (!env.geminiApiKey) throw new AIError("config", "Gemini API key not configured", { providerId: this.id });
 
-    const model = options.model ?? "gemini-2.0-flash";
+    const model = options.model ?? "gemini-flash-latest";
     const contents = [
       ...(options.system
         ? [{ role: "user", parts: [{ text: options.system }] }]

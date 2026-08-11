@@ -64,7 +64,9 @@ export class CloudflareProvider implements AIProvider {
     const data = (await response.json()) as {
       result?: {
         response?: string;
-        usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+        // Live Workers AI returns OpenAI-compatible usage (verified):
+        // prompt_tokens / completion_tokens / total_tokens.
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
       errors?: Array<{ message?: string }>;
     };
@@ -78,11 +80,11 @@ export class CloudflareProvider implements AIProvider {
     const content = data.result?.response?.trim();
     if (!content) throw new AIError("invalid_response", "Cloudflare returned an empty response", { providerId: this.id });
     // Workers AI may not expose usage on every model — return null rather than
-    // inventing token counts.
+    // inventing token counts. Map the live OpenAI-compatible keys.
     const usage = data.result?.usage
       ? {
-          promptTokens: data.result.usage.input_tokens,
-          completionTokens: data.result.usage.output_tokens,
+          promptTokens: data.result.usage.prompt_tokens,
+          completionTokens: data.result.usage.completion_tokens,
           totalTokens: data.result.usage.total_tokens,
         }
       : null;

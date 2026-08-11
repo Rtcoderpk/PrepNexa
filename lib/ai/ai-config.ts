@@ -68,7 +68,9 @@ const GROQ_MODELS = {
 };
 
 const GEMINI_MODELS = {
-  flash: { provider: "gemini" as ProviderId, model: "gemini-2.0-flash", maxTokens: 8192 },
+  // gemini-2.0-flash is deprecated/shut down (verified live 404). gemini-flash-latest
+  // is the current stable flash alias and is verified to return content + usageMetadata.
+  flash: { provider: "gemini" as ProviderId, model: "gemini-flash-latest", maxTokens: 8192 },
 };
 
 const CLOUDFLARE_MODEL = {

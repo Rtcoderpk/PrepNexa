@@ -95,9 +95,10 @@ describe("Gemini usageMetadata normalization", () => {
 });
 
 describe("Cloudflare usage normalization", () => {
-  it("normalizes result.usage when present", async () => {
+  it("normalizes the LIVE OpenAI-compatible usage keys (prompt/completion/total_tokens)", async () => {
+    // Live Workers AI returns prompt_tokens/completion_tokens/total_tokens.
     mockFetchBody({
-      result: { response: "cf", usage: { input_tokens: 6, output_tokens: 3, total_tokens: 9 } },
+      result: { response: "cf", usage: { prompt_tokens: 6, completion_tokens: 3, total_tokens: 9 } },
     });
     const provider = await load("Cloudflare");
     const result = await provider.chatWithUsage(opts);
@@ -132,6 +133,58 @@ describe("OpenRouter usage normalization", () => {
     const result = await provider.chatWithUsage(opts);
     expect(result.content).toBe("or");
     expect(result.usage).toBeNull();
+  });
+});
+
+describe("OpenRouter content extraction (O1 — live reasoning models)", () => {
+  it("prefers normal message.content when present", async () => {
+    mockFetchBody({
+      choices: [{ message: { content: "answer", reasoning: "thinking" } }],
+    });
+    const provider = await load("OpenRouter");
+    const result = await provider.chatWithUsage(opts);
+    expect(result.content).toBe("answer");
+  });
+
+  it("falls back to message.reasoning when content is empty (reasoning model)", async () => {
+    mockFetchBody({
+      choices: [{ message: { content: null, reasoning: "the reasoned answer" } }],
+    });
+    const provider = await load("OpenRouter");
+    const result = await provider.chatWithUsage(opts);
+    expect(result.content).toBe("the reasoned answer");
+  });
+
+  it("falls back to message.reasoning_content when present and content empty", async () => {
+    mockFetchBody({
+      choices: [{ message: { content: "", reasoning_content: "alt answer" } }],
+    });
+    const provider = await load("OpenRouter");
+    const result = await provider.chatWithUsage(opts);
+    expect(result.content).toBe("alt answer");
+  });
+
+  it("throws invalid_response when content and reasoning are all absent (malformed)", async () => {
+    mockFetchBody({ choices: [{ message: {} }] });
+    const provider = await load("OpenRouter");
+    await expect(provider.chatWithUsage(opts)).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+});
+
+describe("Gemini configured model (G1 — must be a live-valid model)", () => {
+  it("config uses gemini-flash-latest, not the deprecated gemini-2.0-flash", async () => {
+    const { getTaskConfig } = await import("@/lib/ai/ai-config");
+    const feedback = getTaskConfig("interview_feedback");
+    const geminiModel = feedback.primary.model;
+    expect(geminiModel).not.toBe("gemini-2.0-flash");
+    expect(geminiModel).toMatch(/^gemini/);
+  });
+
+  it("provider default model is gemini-flash-latest (not deprecated)", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("lib/ai/providers/gemini.ts", "utf8");
+    expect(src).not.toContain("gemini-2.0-flash");
+    expect(src).toContain("gemini-flash-latest");
   });
 });
 
