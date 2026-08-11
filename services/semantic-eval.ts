@@ -82,7 +82,10 @@ Return a SINGLE valid JSON object, no markdown, no commentary:
       ],
       temperature: 0.2,
       format: "json",
-      maxOutputTokens: 300,
+      // 800 floor: Gemini reasoning can consume a 300-600 budget before emitting
+      // the JSON, yielding truncated/invalid output (verified live). 800 reliably
+      // produces valid {score, reason} JSON on reasoning-capable providers.
+      maxOutputTokens: 800,
       userId: params.userId,
       dedupKey: params.dedupKey,
     });

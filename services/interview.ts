@@ -125,7 +125,9 @@ export async function generateOpeningQuestion(params: {
       },
     ],
     temperature: 0.7,
-    maxOutputTokens: 300,
+    // 600 gives reasoning-capable providers (Gemini/OpenRouter) room to think
+    // AND emit a complete concise question; verified live that 300 truncated.
+    maxOutputTokens: 600,
     userId: params.userId,
     dedupKey: params.dedupKey,
   });
@@ -194,7 +196,9 @@ export async function generateNextQuestion(params: {
       },
     ],
     temperature: 0.7,
-    maxOutputTokens: 300,
+    // 600 gives reasoning-capable providers (Gemini/OpenRouter) room to think
+    // AND emit a complete concise question; verified live that 300 truncated.
+    maxOutputTokens: 600,
     userId: params.userId,
     dedupKey: params.dedupKey,
   });
