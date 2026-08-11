@@ -357,6 +357,48 @@ describe("retry/fallback telemetry", () => {
   });
 });
 
+// ---- P3: token usage carried into telemetry ------------------------
+describe("token telemetry (P3)", () => {
+  it("passes normalized usage from chatWithUsage into logAiUsage", async () => {
+    const withUsage = fakeProvider("groq", 10, "ok");
+    withUsage.chatWithUsage = async () => ({
+      content: "reply with usage",
+      usage: { promptTokens: 100, completionTokens: 40, totalTokens: 140 },
+    });
+    setProviders([withUsage]);
+    await generateAIResponse({ task, messages: [] }, { userId: "u1" });
+    const successLog = logUsageMock.mock.calls.find((c) => c[0].success === true);
+    expect(successLog).toBeDefined();
+    expect(successLog![0].promptTokens).toBe(100);
+    expect(successLog![0].completionTokens).toBe(40);
+    expect(successLog![0].totalTokens).toBe(140);
+  });
+
+  it("logs null token fields when usage is unavailable (request still succeeds)", async () => {
+    const noUsage = fakeProvider("groq", 10, "ok");
+    noUsage.chatWithUsage = async () => ({ content: "reply", usage: null });
+    setProviders([noUsage]);
+    await expect(
+      generateAIResponse({ task, messages: [] }, { userId: "u1" }),
+    ).resolves.toBe("reply");
+    const successLog = logUsageMock.mock.calls.find((c) => c[0].success === true);
+    expect(successLog![0].promptTokens).toBeNull();
+    expect(successLog![0].completionTokens).toBeNull();
+    expect(successLog![0].totalTokens).toBeNull();
+  });
+
+  it("falls back to chat() when a provider lacks chatWithUsage", async () => {
+    const plain = fakeProvider("groq", 10, "ok");
+    delete plain.chatWithUsage;
+    setProviders([plain]);
+    await expect(
+      generateAIResponse({ task, messages: [] }, { userId: "u1" }),
+    ).resolves.toBe("reply from groq");
+    const successLog = logUsageMock.mock.calls.find((c) => c[0].success === true);
+    expect(successLog![0].promptTokens).toBeNull();
+  });
+});
+
 // ---- Quota deprioritization + recovery ----------------------------
 describe("quota-aware deprioritization", () => {
   it("puts a quota'd provider on cooldown so the next provider is used", async () => {

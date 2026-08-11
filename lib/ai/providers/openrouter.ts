@@ -5,6 +5,7 @@ import {
   type AIProvider,
   type AITask,
   type ChatOptions,
+  type ChatResult,
 } from "@/lib/ai/ai-types";
 
 const API_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -30,6 +31,10 @@ export class OpenRouterProvider implements AIProvider {
   }
 
   async chat(options: ChatOptions): Promise<string> {
+    return (await this.chatWithUsage(options)).content;
+  }
+
+  async chatWithUsage(options: ChatOptions): Promise<ChatResult> {
     if (!env.openrouterApiKey) throw new AIError("config", "OpenRouter API key not configured", { providerId: this.id });
 
     const model = options.model ?? "openrouter/auto";
@@ -62,10 +67,18 @@ export class OpenRouterProvider implements AIProvider {
 
     const data = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
     const content = data.choices?.[0]?.message?.content?.trim();
     if (!content) throw new AIError("invalid_response", "OpenRouter returned an empty response", { providerId: this.id });
-    return content;
+    const usage = data.usage
+      ? {
+          promptTokens: data.usage.prompt_tokens,
+          completionTokens: data.usage.completion_tokens,
+          totalTokens: data.usage.total_tokens,
+        }
+      : null;
+    return { content, usage };
   }
 
   async ping(): Promise<boolean> {

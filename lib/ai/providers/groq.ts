@@ -5,6 +5,7 @@ import {
   type AIProvider,
   type AITask,
   type ChatOptions,
+  type ChatResult,
 } from "@/lib/ai/ai-types";
 const API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -22,6 +23,10 @@ export class GroqProvider implements AIProvider {
   }
 
   async chat(options: ChatOptions): Promise<string> {
+    return (await this.chatWithUsage(options)).content;
+  }
+
+  async chatWithUsage(options: ChatOptions): Promise<ChatResult> {
     if (!env.groqApiKey) throw new AIError("config", "Groq API key not configured", { providerId: this.id });
 
     const response = await fetch(API_URL, {
@@ -50,10 +55,19 @@ export class GroqProvider implements AIProvider {
 
     const data = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
     const content = data.choices?.[0]?.message?.content?.trim();
     if (!content) throw new AIError("invalid_response", "Groq returned an empty response", { providerId: this.id });
-    return content;
+    // Normalize OpenAI-compatible usage into the common shape (nullable).
+    const usage = data.usage
+      ? {
+          promptTokens: data.usage.prompt_tokens,
+          completionTokens: data.usage.completion_tokens,
+          totalTokens: data.usage.total_tokens,
+        }
+      : null;
+    return { content, usage };
   }
 
   async *stream(options: ChatOptions): AsyncIterable<string> {

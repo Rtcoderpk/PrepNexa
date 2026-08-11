@@ -5,6 +5,7 @@ import {
   type AIProvider,
   type AITask,
   type ChatOptions,
+  type ChatResult,
 } from "@/lib/ai/ai-types";
 
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -37,6 +38,10 @@ export class GeminiProvider implements AIProvider {
   }
 
   async chat(options: ChatOptions): Promise<string> {
+    return (await this.chatWithUsage(options)).content;
+  }
+
+  async chatWithUsage(options: ChatOptions): Promise<ChatResult> {
     if (!env.geminiApiKey) throw new AIError("config", "Gemini API key not configured", { providerId: this.id });
 
     const model = options.model ?? "gemini-2.0-flash";
@@ -71,6 +76,11 @@ export class GeminiProvider implements AIProvider {
 
     const data = (await response.json()) as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      usageMetadata?: {
+        promptTokenCount?: number;
+        candidatesTokenCount?: number;
+        totalTokenCount?: number;
+      };
     };
     const text = data.candidates?.[0]?.content?.parts
       ?.map((p) => p.text ?? "")
@@ -78,7 +88,14 @@ export class GeminiProvider implements AIProvider {
       .trim();
 
     if (!text) throw new AIError("invalid_response", "Gemini returned an empty response", { providerId: this.id });
-    return text;
+    const usage = data.usageMetadata
+      ? {
+          promptTokens: data.usageMetadata.promptTokenCount,
+          completionTokens: data.usageMetadata.candidatesTokenCount,
+          totalTokens: data.usageMetadata.totalTokenCount,
+        }
+      : null;
+    return { content: text, usage };
   }
 
   async ping(): Promise<boolean> {

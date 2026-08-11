@@ -356,6 +356,9 @@ export interface Database {
           attempts: number;
           fallback_from: string | null;
           fallback_to: string | null;
+          prompt_tokens: number | null;
+          completion_tokens: number | null;
+          total_tokens: number | null;
           created_at: string;
         };
         Insert: {
@@ -370,6 +373,9 @@ export interface Database {
           attempts?: number;
           fallback_from?: string | null;
           fallback_to?: string | null;
+          prompt_tokens?: number | null;
+          completion_tokens?: number | null;
+          total_tokens?: number | null;
           created_at?: string;
         };
         Update: Record<string, never>;

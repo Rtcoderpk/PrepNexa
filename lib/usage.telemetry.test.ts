@@ -48,6 +48,29 @@ describe("telemetry session-client fallback (no service-role key)", () => {
     expect(adminClient.from).not.toHaveBeenCalled();
   });
 
+  it("persists token fields when supplied (nullable telemetry)", async () => {
+    const { logAiUsage } = await loadUsage();
+    await logAiUsage({
+      task: "interview_question",
+      promptTokens: 100,
+      completionTokens: 40,
+      totalTokens: 140,
+    });
+    const insertArg = insertMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(insertArg.prompt_tokens).toBe(100);
+    expect(insertArg.completion_tokens).toBe(40);
+    expect(insertArg.total_tokens).toBe(140);
+  });
+
+  it("persists null token fields when usage is absent (request still succeeds)", async () => {
+    const { logAiUsage } = await loadUsage();
+    await logAiUsage({ task: "interview_question" });
+    const insertArg = insertMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(insertArg.prompt_tokens).toBeNull();
+    expect(insertArg.completion_tokens).toBeNull();
+    expect(insertArg.total_tokens).toBeNull();
+  });
+
   it("does not throw when telemetry insert fails (non-critical accounting)", async () => {
     const { logAiUsage } = await loadUsage();
     insertMock.mockRejectedValue(new Error("db down"));

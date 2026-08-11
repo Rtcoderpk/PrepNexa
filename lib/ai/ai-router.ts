@@ -114,14 +114,24 @@ export async function generateAIResponse(
         const started = Date.now();
         try {
           const result = await withRetry(
-            () =>
-              provider.chat({
-                ...options,
-                task,
-                providerId: provider.id,
-                model: model.model,
-                maxOutputTokens: options.maxOutputTokens ?? model.maxTokens,
-              }),
+            async () => {
+              const chatResult = provider.chatWithUsage
+                ? await provider.chatWithUsage({
+                    ...options,
+                    task,
+                    providerId: provider.id,
+                    model: model.model,
+                    maxOutputTokens: options.maxOutputTokens ?? model.maxTokens,
+                  })
+                : { content: await provider.chat({
+                    ...options,
+                    task,
+                    providerId: provider.id,
+                    model: model.model,
+                    maxOutputTokens: options.maxOutputTokens ?? model.maxTokens,
+                  }), usage: null };
+              return chatResult;
+            },
             {
               maxAttempts: options.task === "interview_feedback" ? 2 : 3,
               onRetryableError: (err) => {
@@ -162,9 +172,12 @@ export async function generateAIResponse(
             attempts,
             fallbackFrom: attemptedProviders.at(-1) !== provider.id ? attemptedProviders.at(-1) : undefined,
             fallbackTo: provider.id,
+            promptTokens: result.usage?.promptTokens ?? null,
+            completionTokens: result.usage?.completionTokens ?? null,
+            totalTokens: result.usage?.totalTokens ?? null,
           });
           succeeded = true;
-          return result;
+          return result.content;
         } catch (error) {
           lastError = error;
           attempts += 1;

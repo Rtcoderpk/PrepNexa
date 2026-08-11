@@ -5,6 +5,7 @@ import {
   type AIProvider,
   type AITask,
   type ChatOptions,
+  type ChatResult,
 } from "@/lib/ai/ai-types";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -23,6 +24,10 @@ export class CloudflareProvider implements AIProvider {
   }
 
   async chat(options: ChatOptions): Promise<string> {
+    return (await this.chatWithUsage(options)).content;
+  }
+
+  async chatWithUsage(options: ChatOptions): Promise<ChatResult> {
     if (!env.cloudflareApiToken || !env.cloudflareAccountId) {
       throw new AIError("config", "Cloudflare API credentials not configured", { providerId: this.id });
     }
@@ -57,7 +62,10 @@ export class CloudflareProvider implements AIProvider {
     }
 
     const data = (await response.json()) as {
-      result?: { response?: string };
+      result?: {
+        response?: string;
+        usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+      };
       errors?: Array<{ message?: string }>;
     };
 
@@ -69,7 +77,16 @@ export class CloudflareProvider implements AIProvider {
 
     const content = data.result?.response?.trim();
     if (!content) throw new AIError("invalid_response", "Cloudflare returned an empty response", { providerId: this.id });
-    return content;
+    // Workers AI may not expose usage on every model — return null rather than
+    // inventing token counts.
+    const usage = data.result?.usage
+      ? {
+          promptTokens: data.result.usage.input_tokens,
+          completionTokens: data.result.usage.output_tokens,
+          totalTokens: data.result.usage.total_tokens,
+        }
+      : null;
+    return { content, usage };
   }
 
   async ping(): Promise<boolean> {

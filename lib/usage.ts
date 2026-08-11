@@ -225,6 +225,10 @@ export async function logAiUsage(params: {
   fallbackFrom?: string;
   /** Provider we fell back TO (set only when fallback occurred). */
   fallbackTo?: string;
+  /** Token usage (nullable — observability only, never budgeted). */
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
 }): Promise<void> {
   try {
     const client = tryGetAdmin() ?? (await createClient());
@@ -239,6 +243,9 @@ export async function logAiUsage(params: {
       attempts: params.attempts ?? 1,
       fallback_from: params.fallbackFrom ?? null,
       fallback_to: params.fallbackTo ?? null,
+      prompt_tokens: params.promptTokens ?? null,
+      completion_tokens: params.completionTokens ?? null,
+      total_tokens: params.totalTokens ?? null,
     });
   } catch {
     // Non-critical accounting — never fail the request.

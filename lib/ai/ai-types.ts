@@ -54,8 +54,29 @@ export interface EmbeddingResult {
 }
 
 /**
+ * Token usage metadata normalized across providers. All fields nullable because
+ * some providers/responses may not expose usage (observability-only in P3 —
+ * never used for budget enforcement).
+ */
+export interface TokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+/** Result of a chat call, optionally carrying normalized token usage. */
+export interface ChatResult {
+  content: string;
+  usage: TokenUsage | null;
+}
+
+/**
  * A single provider engine. Implementations wrap a cloud provider REST/SDK.
  * `id` uniquely identifies the provider for health tracking.
+ *
+ * `chat` returns just the text (backward compatible). Providers that can expose
+ * token usage implement `chatWithUsage`, which returns the same text plus a
+ * normalized TokenUsage (or null when the response has no usage metadata).
  */
 export interface AIProvider {
   readonly id: string;
@@ -64,6 +85,8 @@ export interface AIProvider {
   /** Whether this provider can handle the requested task. */
   supports(task: AITask, capabilities?: AICapabilities): boolean;
   chat(options: ChatOptions): Promise<string>;
+  /** Optional: chat + normalized token usage. Callers fall back to `chat`. */
+  chatWithUsage?(options: ChatOptions): Promise<ChatResult>;
   stream?(options: ChatOptions): AsyncIterable<string>;
   ping(): Promise<boolean>;
 }
