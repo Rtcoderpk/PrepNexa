@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PLANS, PRO_FAIR_USE_LIMIT } from "@/lib/pricing";
+import { getRedis } from "@/lib/redis";
 
 /**
  * Server-side usage + entitlement enforcement. The source of truth is the
@@ -238,13 +239,50 @@ export async function logAiUsage(params: {
 export type AiBudgetCheck = { allowed: boolean; reason?: "daily" | "hourly" };
 
 /**
- * Per-user AI usage budget guard. Counts the user's AI requests within rolling
- * daily/hourly windows from `ai_usage_logs` and blocks when a configured limit
- * is exceeded. Limits come from env (AI_DAILY_BUDGET / AI_HOURLY_BUDGET); 0
- * disables the guard. The check is best-effort — failures return allowed.
- * This protects the app's provider free-tier capacity from a single heavy user.
+ * Per-user AI budget reservation.
+ *
+ * Budget limits are enforced with an ATOMIC reservation (not a count-then-check,
+ * which would race under concurrency):
+ *  - Redis path: `INCR` a per-user rolling-window counter with a TTL. Redis INCR
+ *    is atomic, so concurrent requests from the same user cannot both pass the
+ *    limit. If the incremented value exceeds the limit the reservation is rolled
+ *    back (DECR) and the request rejected WITHOUT consuming a slot.
+ *  - In-memory fallback: a per-instance Map with synchronous increment so no
+ *    intra-instance race. (Not cross-instance — Redis is the multi-instance path.)
+ *  - On failure the caller calls releaseAiBudget() to roll the reservation back so
+ *    failed attempts don't permanently consume slots.
+ *
+ * Enforces both AI_DAILY_BUDGET and AI_HOURLY_BUDGET (0 disables either).
+ * A reservation failure is best-effort — it never blocks the request path.
  */
-export async function checkAiBudget(
+
+const BUDGET_WINDOW_MS = {
+  daily: 24 * 60 * 60 * 1000,
+  hourly: 60 * 60 * 1000,
+} as const;
+
+/** Per-instance fallback counters: user -> windowKey -> current reservations. */
+const memoryBudgetCounters = new Map<string, Map<string, number>>();
+
+/** Tracks in-flight reservations per user so failed calls can be released. */
+const memoryBudgetReservations = new Map<string, Set<string>>();
+
+function budgetKey(userId: string, window: "daily" | "hourly"): string {
+  // The window bucket is aligned to the limit so TTL expiry aligns with it.
+  const bucket = Math.floor(Date.now() / BUDGET_WINDOW_MS[window]);
+  return `ai:budget:${userId}:${window}:${bucket}`;
+}
+
+function memoryBudgetKey(userId: string, window: "daily" | "hourly"): string {
+  return budgetKey(userId, window);
+}
+
+/**
+ * Attempts to reserve one AI-budget slot for the user. Atomic when Redis is
+ * available; synchronous in-memory otherwise. Returns allowed=false (with the
+ * reason) when the reservation exceeds a configured limit.
+ */
+export async function reserveAiBudget(
   userId: string | undefined,
 ): Promise<AiBudgetCheck> {
   const { env } = await import("@/lib/env");
@@ -255,34 +293,114 @@ export async function checkAiBudget(
   }
   if (!userId) return { allowed: true };
 
+  const limits = [
+    { window: "daily" as const, limit: dailyLimit },
+    { window: "hourly" as const, limit: hourlyLimit },
+  ].filter((w) => w.limit > 0);
+
   try {
-    const client = tryGetAdmin() ?? (await createClient());
-    const now = Date.now();
-    const [daily, hourly] = await Promise.all([
-      dailyLimit > 0
-        ? countAiRequests(client, userId, now - 24 * 60 * 60 * 1000)
-        : Promise.resolve(0),
-      hourlyLimit > 0
-        ? countAiRequests(client, userId, now - 60 * 60 * 1000)
-        : Promise.resolve(0),
-    ]);
-    if (dailyLimit > 0 && daily >= dailyLimit) return { allowed: false, reason: "daily" };
-    if (hourlyLimit > 0 && hourly >= hourlyLimit) return { allowed: false, reason: "hourly" };
-    return { allowed: true };
+    const redis = await getRedis();
+    if (redis) {
+      const reservedKeys: string[] = [];
+      for (const { window, limit } of limits) {
+        const key = budgetKey(userId, window);
+        const count = await redis.incr(key);
+        // First reservation this window — set TTL so the counter self-clears.
+        if (count === 1) {
+          await redis.expire(key, Math.ceil(BUDGET_WINDOW_MS[window] / 1000));
+        }
+        if (count > limit) {
+          // Roll back ALL reservations (this window + any earlier window) so a
+          // rejected request never consumes a slot.
+          await Promise.allSettled(
+            reservedKeys.map((k) => redis.decr?.(k) ?? Promise.resolve(0)),
+          );
+          await redis.decr?.(key).catch(() => {});
+          return { allowed: false, reason: window };
+        }
+        reservedKeys.push(key);
+      }
+      return { allowed: true };
+    }
+
+    // In-memory fallback (single instance).
+    return reserveInMemory(userId, limits);
   } catch {
+    // Budget reservation is best-effort — never break the request path.
     return { allowed: true };
   }
 }
 
-async function countAiRequests(
-  client: Awaited<ReturnType<typeof createClient>>,
+function reserveInMemory(
   userId: string,
-  sinceMs: number,
-): Promise<number> {
-  const { count } = await client
-    .from("ai_usage_logs")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("created_at", new Date(sinceMs).toISOString());
-  return count ?? 0;
+  limits: Array<{ window: "daily" | "hourly"; limit: number }>,
+): AiBudgetCheck {
+  let windows = memoryBudgetCounters.get(userId);
+  if (!windows) {
+    windows = new Map<string, number>();
+    memoryBudgetCounters.set(userId, windows);
+  }
+  let reservations = memoryBudgetReservations.get(userId);
+  if (!reservations) {
+    reservations = new Set<string>();
+    memoryBudgetReservations.set(userId, reservations);
+  }
+
+  const reservedKeys: string[] = [];
+  for (const { window, limit } of limits) {
+    const key = memoryBudgetKey(userId, window);
+    const next = (windows.get(key) ?? 0) + 1;
+    if (next > limit) {
+      // Roll back any windows reserved earlier in this request.
+      for (const rk of reservedKeys) {
+        const rNext = (windows.get(rk) ?? 1) - 1;
+        if (rNext <= 0) windows.delete(rk);
+        else windows.set(rk, rNext);
+        reservations.delete(rk);
+      }
+      return { allowed: false, reason: window };
+    }
+    windows.set(key, next);
+    reservations.add(key);
+    reservedKeys.push(key);
+  }
+  return { allowed: true };
+}
+
+/**
+ * Releases a budget reservation for the user (e.g. after a failed AI call so the
+ * slot isn't permanently consumed). Fire-and-forget — failures are swallowed.
+ */
+export async function releaseAiBudget(userId: string | undefined): Promise<void> {
+  if (!userId) return;
+  try {
+    const redis = await getRedis();
+    if (redis) {
+      for (const window of ["daily", "hourly"] as const) {
+        await redis.decr?.(budgetKey(userId, window)).catch(() => {});
+      }
+      return;
+    }
+    releaseInMemory(userId);
+  } catch {
+    // Best-effort.
+  }
+}
+
+function releaseInMemory(userId: string): void {
+  const windows = memoryBudgetCounters.get(userId);
+  const reservations = memoryBudgetReservations.get(userId);
+  if (!windows || !reservations) return;
+  for (const key of reservations) {
+    const next = (windows.get(key) ?? 1) - 1;
+    if (next <= 0) windows.delete(key);
+    else windows.set(key, next);
+  }
+  reservations.clear();
+}
+
+/** Clears all in-memory budget reservation state (test helper). */
+export function resetAiBudgetState(): void {
+  memoryBudgetCounters.clear();
+  memoryBudgetReservations.clear();
 }

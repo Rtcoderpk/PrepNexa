@@ -9,6 +9,7 @@ type RedisInstance = {
   get(key: string): Promise<string | null>;
   setex(key: string, seconds: number, value: string): Promise<void>;
   incr(key: string): Promise<number>;
+  decr(key: string): Promise<number>;
   pttl(key: string): Promise<number>;
   expire(key: string, seconds: number): Promise<void>;
   del(key: string): Promise<void>;
@@ -45,6 +46,9 @@ export async function getRedis(): Promise<RedisInstance | null> {
         },
         async incr(key) {
           return client.incr(key);
+        },
+        async decr(key) {
+          return client.decr(key);
         },
         async pttl(key) {
           return client.pttl(key);

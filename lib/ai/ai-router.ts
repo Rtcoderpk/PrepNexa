@@ -15,7 +15,7 @@ import {
   isCooldown,
 } from "@/lib/ai/provider-health";
 import { beginInFlight, endInFlight, recordRequest } from "@/lib/ai/usage-manager";
-import { logAiUsage, checkAiBudget } from "@/lib/usage";
+import { logAiUsage, reserveAiBudget, releaseAiBudget } from "@/lib/usage";
 
 export interface RouteOptions {
   /** Optional dedup key — a concurrent identical request is not re-fired. */
@@ -75,13 +75,19 @@ export async function generateAIResponse(
 
   recordRequest(task);
 
+  // Per-user AI budget reservation (server-side cost control). Atomic when
+  // Redis is available; in-memory fallback otherwise. Best-effort. Declared at
+  // function scope so the finally clause can read them.
+  let budgetReserved = false;
+  let succeeded = false;
+
   try {
-    // Per-user AI budget guardrail (server-side cost control). Best-effort.
     if (routeOptions.userId) {
-      const budget = await checkAiBudget(routeOptions.userId);
+      const budget = await reserveAiBudget(routeOptions.userId);
       if (!budget.allowed) {
         throw new AIError("response", "You've reached your AI usage limit for now. Please try again later.");
       }
+      budgetReserved = true;
     }
 
     const models = resolveModel(task);
@@ -143,6 +149,7 @@ export async function generateAIResponse(
             success: true,
             latencyMs: Date.now() - started,
           });
+          succeeded = true;
           return result;
         } catch (error) {
           lastError = error;
@@ -181,6 +188,11 @@ export async function generateAIResponse(
       providerId: isAIError(lastError) ? lastError.providerId : undefined,
     });
   } finally {
+    // Release the budget reservation ONLY when the request did not succeed —
+    // a failed attempt should not permanently consume a slot.
+    if (budgetReserved && !succeeded) {
+      void releaseAiBudget(routeOptions.userId);
+    }
     // Guarantee in-flight state is released even on early throws.
     if (routeOptions.dedupKey) endInFlight(task, routeOptions.dedupKey);
   }
@@ -192,14 +204,6 @@ export async function generateAIStream(
 ): Promise<AsyncIterable<string>> {
   const task = options.task;
   const capabilities = options.capabilities;
-
-  // Per-user AI budget guardrail (server-side cost control). Best-effort.
-  if (routeOptions.userId) {
-    const budget = await checkAiBudget(routeOptions.userId);
-    if (!budget.allowed) {
-      throw new AIError("response", "You've reached your AI usage limit for now. Please try again later.");
-    }
-  }
 
   const providers = await candidateProviders(task, capabilities);
 
@@ -226,6 +230,7 @@ export async function generateAIStream(
   }
 
   // No streaming-capable provider — fall back to a single non-streamed response.
+  // The budget reservation is handled inside generateAIResponse.
   const text = await generateAIResponse(options, routeOptions);
   return (async function* () {
     yield text;

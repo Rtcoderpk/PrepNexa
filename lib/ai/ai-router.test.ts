@@ -49,14 +49,16 @@ vi.mock("@/lib/redis", () => ({
   getRedis: async () => null,
 }));
 
-// Lifted budget mock so individual tests can override the result.
-const budgetMock = vi.hoisted(() => vi.fn());
+// Lifted budget mocks so individual tests can override results.
+const reserveMock = vi.hoisted(() => vi.fn());
+const releaseMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/usage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/usage")>();
   return {
     ...actual,
-    checkAiBudget: budgetMock,
+    reserveAiBudget: reserveMock,
+    releaseAiBudget: releaseMock,
     logAiUsage: async () => {},
     persistProviderHealth: async () => {},
   };
@@ -65,7 +67,8 @@ vi.mock("@/lib/usage", async (importOriginal) => {
 beforeEach(() => {
   vi.resetModules();
   resetProviderHealth();
-  budgetMock.mockReset().mockResolvedValue({ allowed: true });
+  reserveMock.mockReset().mockResolvedValue({ allowed: true });
+  releaseMock.mockReset().mockResolvedValue(undefined);
   setProviders([]);
 });
 
@@ -237,7 +240,7 @@ describe("Gemini URL redaction", () => {
 // ---- Per-user AI budget guardrail --------------------------------
 describe("per-user AI budget (RouteOptions.userId)", () => {
   it("blocks a request when the budget is exceeded", async () => {
-    budgetMock.mockResolvedValue({ allowed: false, reason: "daily" });
+    reserveMock.mockResolvedValue({ allowed: false, reason: "daily" });
     setProviders([
       fakeProvider("groq", 10, "ok"),
     ]);
@@ -247,13 +250,36 @@ describe("per-user AI budget (RouteOptions.userId)", () => {
   });
 
   it("allows through when within budget", async () => {
-    budgetMock.mockResolvedValue({ allowed: true });
+    reserveMock.mockResolvedValue({ allowed: true });
     setProviders([
       fakeProvider("groq", 10, "ok"),
     ]);
     await expect(
       generateAIResponse({ task, messages: [] }, { userId: "user-1" }),
     ).resolves.toBe("reply from groq");
+  });
+
+  it("does NOT release the reservation on success", async () => {
+    reserveMock.mockResolvedValue({ allowed: true });
+    releaseMock.mockClear();
+    setProviders([
+      fakeProvider("groq", 10, "ok"),
+    ]);
+    await generateAIResponse({ task, messages: [] }, { userId: "user-1" });
+    expect(releaseMock).not.toHaveBeenCalled();
+  });
+
+  it("releases the reservation when all providers fail", async () => {
+    reserveMock.mockResolvedValue({ allowed: true });
+    releaseMock.mockClear();
+    setProviders([
+      fakeProvider("groq", 10, "quota"),
+      fakeProvider("gemini", 20, "quota"),
+    ]);
+    await expect(
+      generateAIResponse({ task, messages: [] }, { userId: "user-1" }),
+    ).rejects.toThrow("All AI providers");
+    expect(releaseMock).toHaveBeenCalledWith("user-1");
   });
 });
 
