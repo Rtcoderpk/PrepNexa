@@ -109,6 +109,14 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle();
 
+  // Server-side idempotency key derived from trusted context (interview + the
+  // question just answered). Mirrors actions/respond.ts so concurrent duplicate
+  // submissions are rejected by the router's beginInFlight before budget/AI
+  // dispatch — no duplicate LLM call, no leaked budget reservation.
+  const respondDedupKey = lastQuestion
+    ? `respond:${interview.id}:${lastQuestion.id}`
+    : `respond:${interview.id}:${user.id}`;
+
   if (lastQuestion) {
     await supabase
       .from("interview_questions")
@@ -154,6 +162,7 @@ export async function POST(request: NextRequest) {
       })),
       isFollowUp,
       userId: user.id,
+      dedupKey: respondDedupKey,
     });
 
     const isComplete = isCompletionMessage(generated.content);
