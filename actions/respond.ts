@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { sanitizeAnswer } from "@/lib/security";
 import { respondInterviewSchema, respondTelemetrySchema } from "@/lib/validations";
 import { generateNextQuestion, isCompletionMessage } from "@/services/interview";
@@ -45,7 +45,7 @@ export async function respondAction(params: {
     throw new Error("Unauthorized");
   }
 
-  if (!rateLimit(`respond:${user.id}`, 30)) {
+  if (!(await rateLimitAsync(`respond:${user.id}`, 30))) {
     throw new Error("You are sending messages too quickly. Please slow down.");
   }
 

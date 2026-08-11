@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import {
   forgotPasswordSchema,
   loginSchema,
@@ -27,7 +27,7 @@ export async function loginAction(formData: FormData) {
   }
 
   const ip = await getClientIp();
-  if (!rateLimit(`login:${ip}`)) {
+  if (!(await rateLimitAsync(`login:${ip}`))) {
     return { error: "Too many attempts. Please try again later." };
   }
 
@@ -66,7 +66,7 @@ export async function signupAction(formData: FormData) {
   }
 
   const ip = await getClientIp();
-  if (!rateLimit(`signup:${ip}`)) {
+  if (!(await rateLimitAsync(`signup:${ip}`))) {
     return { error: "Too many attempts. Please try again later." };
   }
 
@@ -105,7 +105,7 @@ export async function forgotPasswordAction(formData: FormData) {
   }
 
   const ip = await getClientIp();
-  if (!rateLimit(`forgot:${ip}`)) {
+  if (!(await rateLimitAsync(`forgot:${ip}`))) {
     return { error: "Too many attempts. Please try again later." };
   }
 

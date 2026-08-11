@@ -181,3 +181,45 @@ describe("interview client budget UX (P8-E)", () => {
     expect(src).toContain("data.budgetLimit");
   });
 });
+
+// ---- P9: server actions use rateLimitAsync (multi-instance consistent) ----
+describe("server-action rate-limit consistency (P9/M1)", () => {
+  it("every server action uses rateLimitAsync, not the sync memory limiter", async () => {
+    const fs = await import("node:fs");
+    const files = [
+      "actions/resume.ts",
+      "actions/respond.ts",
+      "actions/interview.ts",
+      "actions/feedback.ts",
+      "actions/auth.ts",
+    ];
+    for (const file of files) {
+      const src = fs.readFileSync(file, "utf8");
+      expect(src).toContain("rateLimitAsync");
+      expect(src).not.toContain("rateLimit(");
+    }
+  });
+
+  it("preserves the exact per-action rate-limit keys + limits", async () => {
+    const fs = await import("node:fs");
+    const resume = fs.readFileSync("actions/resume.ts", "utf8");
+    const respond = fs.readFileSync("actions/respond.ts", "utf8");
+    const interview = fs.readFileSync("actions/interview.ts", "utf8");
+    const feedback = fs.readFileSync("actions/feedback.ts", "utf8");
+    const auth = fs.readFileSync("actions/auth.ts", "utf8");
+
+    expect(resume).toContain("await rateLimitAsync(`resume:${user.id}`)");
+    expect(respond).toContain("await rateLimitAsync(`respond:${user.id}`, 30)");
+    expect(interview).toContain("await rateLimitAsync(`start:${user.id}`)");
+    expect(feedback).toContain("await rateLimitAsync(`feedback:${user.id}`, 5)");
+    expect(auth).toContain("await rateLimitAsync(`login:${ip}`)");
+    expect(auth).toContain("await rateLimitAsync(`signup:${ip}`)");
+    expect(auth).toContain("await rateLimitAsync(`forgot:${ip}`)");
+  });
+
+  it("keeps the sync rateLimit export available (not removed from the API surface)", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("lib/rate-limit.ts", "utf8");
+    expect(src).toContain("export function rateLimit(");
+  });
+});

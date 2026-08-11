@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { generateFeedback, saveFeedback, loadInterviewTelemetry } from "@/services/feedback";
 import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
 import type { InterviewFeedbackReport } from "@/types/feedback";
@@ -24,7 +24,7 @@ export async function generateInterviewFeedbackAction(params: {
     throw new Error("Unauthorized");
   }
 
-  if (!rateLimit(`feedback:${user.id}`, 5)) {
+  if (!(await rateLimitAsync(`feedback:${user.id}`, 5))) {
     throw new Error("Too many requests. Please try again later.");
   }
 

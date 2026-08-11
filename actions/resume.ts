@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import {
   parseResumePdf,
   uploadResumeToStorage,
@@ -24,7 +24,7 @@ export async function uploadResumeAction(formData: FormData) {
     return { error: "No file provided." };
   }
 
-  if (!rateLimit(`resume:${user.id}`)) {
+  if (!(await rateLimitAsync(`resume:${user.id}`))) {
     return { error: "Too many uploads. Please try again later." };
   }
 

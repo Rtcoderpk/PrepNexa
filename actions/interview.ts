@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { sanitizeInput } from "@/lib/security";
 import { startInterviewSchema } from "@/lib/validations";
 import { createInterview } from "@/services/interview";
@@ -17,7 +17,7 @@ export async function startInterviewAction(formData: FormData) {
     return { error: "You must be signed in." };
   }
 
-  if (!rateLimit(`start:${user.id}`)) {
+  if (!(await rateLimitAsync(`start:${user.id}`))) {
     return { error: "Too many requests. Please try again later." };
   }
 
