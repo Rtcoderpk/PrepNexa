@@ -129,6 +129,13 @@ export async function respondAction(params: {
     category: m.category as QuestionCategory | undefined,
   }));
 
+  // Server-side idempotency key derived from trusted context (interview +
+  // the question just answered). Blocks a concurrent duplicate respond from
+  // firing two AI dispatches for the same answer.
+  const respondDedupKey = lastQuestion
+    ? `respond:${interview.id}:${lastQuestion.id}`
+    : `respond:${interview.id}:${user.id}`;
+
   // Score the answer semantically in parallel with generating the next question.
   // Never blocks or fails the main flow — on any error we simply skip scoring.
   const semanticScorePromise = lastQuestion
@@ -139,6 +146,7 @@ export async function respondAction(params: {
         role: interview.job_role ?? undefined,
         resumeContext,
         userId: user.id,
+        dedupKey: respondDedupKey,
       })
     : Promise.resolve();
 
@@ -152,6 +160,7 @@ export async function respondAction(params: {
         latestAnswer: answer,
         isFollowUp,
         userId: user.id,
+        dedupKey: respondDedupKey,
       }),
       semanticScorePromise,
     ]);
@@ -233,6 +242,7 @@ async function scoreAnswerSemantically(params: {
   role?: string;
   resumeContext?: string;
   userId?: string;
+  dedupKey?: string;
 }): Promise<void> {
   try {
     const evaluation = await semanticEvaluator.evaluate({
@@ -241,6 +251,7 @@ async function scoreAnswerSemantically(params: {
       role: params.role,
       resumeContext: params.resumeContext,
       userId: params.userId,
+      dedupKey: params.dedupKey,
     });
 
     const feedbackText =

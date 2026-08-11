@@ -353,6 +353,9 @@ export interface Database {
           success: boolean;
           error_kind: string | null;
           latency_ms: number | null;
+          attempts: number;
+          fallback_from: string | null;
+          fallback_to: string | null;
           created_at: string;
         };
         Insert: {
@@ -364,6 +367,9 @@ export interface Database {
           success?: boolean;
           error_kind?: string | null;
           latency_ms?: number | null;
+          attempts?: number;
+          fallback_from?: string | null;
+          fallback_to?: string | null;
           created_at?: string;
         };
         Update: Record<string, never>;

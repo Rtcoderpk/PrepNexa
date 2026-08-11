@@ -14,7 +14,7 @@ import { redactedUrl } from "@/lib/ai/providers/gemini";
 function fakeProvider(
   id: string,
   priority: number,
-  behavior: "ok" | "fail" | "rate" | "quota" | "timeout" | "invalid" = "ok",
+  behavior: "ok" | "fail" | "rate" | "quota" | "timeout" | "invalid" | "config" = "ok",
 ): AIProvider {
   return {
     id,
@@ -26,6 +26,7 @@ function fakeProvider(
       if (behavior === "quota") throw new AIError("quota", `${id} quota`, { providerId: id });
       if (behavior === "timeout") throw new AIError("timeout", `${id} timeout`, { providerId: id });
       if (behavior === "invalid") throw new AIError("invalid_response", `${id} bad`, { providerId: id });
+      if (behavior === "config") throw new AIError("config", `${id} misconfigured`, { providerId: id });
       return `reply from ${id}`;
     },
     async ping() {
@@ -52,6 +53,7 @@ vi.mock("@/lib/redis", () => ({
 // Lifted budget mocks so individual tests can override results.
 const reserveMock = vi.hoisted(() => vi.fn());
 const releaseMock = vi.hoisted(() => vi.fn());
+const logUsageMock = vi.hoisted(() => vi.fn(async (_p: Record<string, unknown>) => undefined));
 
 vi.mock("@/lib/usage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/usage")>();
@@ -59,7 +61,7 @@ vi.mock("@/lib/usage", async (importOriginal) => {
     ...actual,
     reserveAiBudget: reserveMock,
     releaseAiBudget: releaseMock,
-    logAiUsage: async () => {},
+    logAiUsage: logUsageMock,
     persistProviderHealth: async () => {},
   };
 });
@@ -69,6 +71,7 @@ beforeEach(() => {
   resetProviderHealth();
   reserveMock.mockReset().mockResolvedValue({ allowed: true });
   releaseMock.mockReset().mockResolvedValue(undefined);
+  logUsageMock.mockClear();
   setProviders([]);
 });
 
@@ -144,7 +147,7 @@ describe("generateAIResponse", () => {
     await expect(generateAIResponse({ task, messages: [] })).resolves.toBe("reply from gemini");
   });
 
-  it("propagates config errors without failover", async () => {
+  it("fails over past a single provider's config error when others are healthy", async () => {
     const cfg = fakeProvider("groq", 10, "ok");
     cfg.chat = async () => {
       throw new AIError("config", "Groq API key not configured", { providerId: "groq" });
@@ -152,6 +155,14 @@ describe("generateAIResponse", () => {
     setProviders([
       cfg,
       fakeProvider("gemini", 20, "ok"),
+    ]);
+    await expect(generateAIResponse({ task, messages: [] })).resolves.toBe("reply from gemini");
+  });
+
+  it("propagates config when EVERY provider fails with config", async () => {
+    setProviders([
+      fakeProvider("groq", 10, "config"),
+      fakeProvider("gemini", 20, "config"),
     ]);
     await expect(generateAIResponse({ task, messages: [] })).rejects.toMatchObject({ kind: "config" });
   });
@@ -206,22 +217,23 @@ describe("cooldowns", () => {
 
 // ---- In-flight cleanup --------------------------------------------
 describe("in-flight cleanup", () => {
-  it("releases in-flight state when a config error throws mid-dispatch", async () => {
-    const cfg = fakeProvider("groq", 10, "ok");
-    cfg.chat = async () => {
-      throw new AIError("config", "no key", { providerId: "groq" });
-    };
+  it("releases in-flight state when the request throws mid-dispatch", async () => {
     setProviders([
-      cfg,
-      fakeProvider("gemini", 20, "ok"),
+      fakeProvider("groq", 10, "config"),
+      fakeProvider("gemini", 20, "config"),
     ]);
     await expect(
       generateAIResponse({ task, messages: [] }, { dedupKey: "k1" }),
     ).rejects.toMatchObject({ kind: "config" });
 
     // A second call with the same dedup key must NOT be blocked as in-flight.
+    resetProviderHealth(); // clear the cooldowns the first config failure set
+    setProviders([
+      fakeProvider("groq", 10, "ok"),
+      fakeProvider("gemini", 20, "ok"),
+    ]);
     await expect(generateAIResponse({ task, messages: [] }, { dedupKey: "k1" })).resolves.toBe(
-      "reply from gemini",
+      "reply from groq",
     );
   });
 });
@@ -280,6 +292,60 @@ describe("per-user AI budget (RouteOptions.userId)", () => {
       generateAIResponse({ task, messages: [] }, { userId: "user-1" }),
     ).rejects.toThrow("All AI providers");
     expect(releaseMock).toHaveBeenCalledWith("user-1");
+  });
+});
+
+// ---- Duplicate dispatch dedup -------------------------------------
+describe("dedupKey (duplicate dispatch protection)", () => {
+  it("blocks a concurrent duplicate request with the same task+key", async () => {
+    let resolveFirst: () => void;
+    const gate = new Promise<void>((r) => (resolveFirst = r));
+    const slow = fakeProvider("groq", 10, "ok");
+    slow.chat = async () => {
+      await gate;
+      return "slow reply";
+    };
+    setProviders([slow]);
+    const first = generateAIResponse({ task, messages: [] }, { dedupKey: "k1" });
+    const second = generateAIResponse({ task, messages: [] }, { dedupKey: "k1" });
+    // The duplicate should fail fast while the first is still in flight.
+    await expect(second).rejects.toThrow("already in progress");
+    resolveFirst!();
+    await expect(first).resolves.toBe("slow reply");
+    // After completion the key is released — a new call proceeds.
+    setProviders([]);
+    resetProviderHealth();
+    setProviders([fakeProvider("groq", 10, "ok")]);
+    await expect(generateAIResponse({ task, messages: [] }, { dedupKey: "k1" })).resolves.toBe(
+      "reply from groq",
+    );
+  });
+});
+
+// ---- Retry/fallback telemetry -------------------------------------
+describe("retry/fallback telemetry", () => {
+  it("logs fallback_from/fallback_to and attempts when a provider fails over", async () => {
+    setProviders([
+      fakeProvider("groq", 10, "fail"),
+      fakeProvider("gemini", 20, "ok"),
+    ]);
+    await generateAIResponse({ task, messages: [] }, { userId: "u1" });
+    const successLog = logUsageMock.mock.calls.find((c) => c[0].success === true);
+    expect(successLog).toBeDefined();
+    // Gemini succeeded after falling back from groq.
+    expect(successLog![0].provider).toBe("gemini");
+    expect(successLog![0].fallbackFrom).toBe("groq");
+    expect(successLog![0].fallbackTo).toBe("gemini");
+    expect(successLog![0].attempts).toBeGreaterThan(0);
+  });
+
+  it("logs attempts on a single-provider success (no fallback)", async () => {
+    setProviders([fakeProvider("groq", 10, "ok")]);
+    await generateAIResponse({ task, messages: [] }, { userId: "u1" });
+    const successLog = logUsageMock.mock.calls.find((c) => c[0].success === true);
+    expect(successLog![0].provider).toBe("groq");
+    expect(successLog![0].fallbackFrom).toBeUndefined();
+    expect(successLog![0].attempts).toBe(1);
   });
 });
 

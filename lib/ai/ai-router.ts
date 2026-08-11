@@ -101,6 +101,9 @@ export async function generateAIResponse(
     }
 
     let lastError: unknown = null;
+    // Observability: total attempts and which providers were tried in order.
+    let attempts = 0;
+    const attemptedProviders: string[] = [];
 
     // Attempt each (model) in order; for each, try every capable provider.
     for (const model of models) {
@@ -123,6 +126,10 @@ export async function generateAIResponse(
               maxAttempts: options.task === "interview_feedback" ? 2 : 3,
               onRetryableError: (err) => {
                 const kind = isAIError(err) ? err.kind : "response";
+                attempts += 1;
+                if (attemptedProviders[attemptedProviders.length - 1] !== provider.id) {
+                  attemptedProviders.push(provider.id);
+                }
                 // Record health on the FIRST retryable error (not after retries
                 // exhaust) so cooldowns/counters are truthful.
                 recordFailure(
@@ -137,10 +144,14 @@ export async function generateAIResponse(
                   success: false,
                   errorKind: kind,
                   latencyMs: Date.now() - started,
+                  attempts,
+                  fallbackFrom: attemptedProviders.at(-2),
+                  fallbackTo: provider.id,
                 });
               },
             },
           );
+          attempts += 1;
           recordSuccess(provider.id, Date.now() - started);
           void logAiUsage({
             task,
@@ -148,11 +159,18 @@ export async function generateAIResponse(
             model: model.model,
             success: true,
             latencyMs: Date.now() - started,
+            attempts,
+            fallbackFrom: attemptedProviders.at(-1) !== provider.id ? attemptedProviders.at(-1) : undefined,
+            fallbackTo: provider.id,
           });
           succeeded = true;
           return result;
         } catch (error) {
           lastError = error;
+          attempts += 1;
+          if (attemptedProviders[attemptedProviders.length - 1] !== provider.id) {
+            attemptedProviders.push(provider.id);
+          }
           // Non-retryable errors (config/invalid_response) were NOT health-
           // recorded by withRetry — record them here once.
           if (!isAIError(error) || !isRetryableKind(error.kind)) {
@@ -165,13 +183,20 @@ export async function generateAIResponse(
               success: false,
               errorKind: kind,
               latencyMs: Date.now() - started,
+              attempts,
+              fallbackFrom: attemptedProviders.at(-2),
+              fallbackTo: provider.id,
             });
           }
 
-          // Config/invalid-response are not worth failing over for — propagate.
-          if (isAIError(error) && (error.kind === "config" || error.kind === "invalid_response")) {
+          // Invalid-response from a provider is not worth failing over for —
+          // it indicates a broken response from that engine, so propagate.
+          if (isAIError(error) && error.kind === "invalid_response") {
             throw error;
           }
+          // A single provider's config error (e.g. one bad key) should NOT abort
+          // the whole request while other providers may be healthy — fail over,
+          // and only propagate config if EVERY provider fails with it (below).
           // Continue to the next provider.
         }
       }

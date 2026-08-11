@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { z } from "zod";
 import { matchResumeToJob } from "@/services/resume-analysis";
 import { getUsageStatus } from "@/lib/usage";
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!rateLimit(`jobmatch:${user.id}`, 10)) {
+  if (!(await rateLimitAsync(`jobmatch:${user.id}`, 10))) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
       { status: 429 },

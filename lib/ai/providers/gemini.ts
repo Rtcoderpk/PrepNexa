@@ -95,6 +95,11 @@ export class GeminiProvider implements AIProvider {
         retryAfterSec: parseRetryAfter(body),
       });
     }
+    // 401/403 = invalid/forbidden credentials — a configuration problem, not a
+    // transient provider availability issue. Do not fail over to another provider.
+    if (status === 401 || status === 403) {
+      return new AIError("config", `Gemini credentials rejected (${status})`, { providerId: this.id });
+    }
     // 400 with a quota/limit message → treat as temporary quota exhaustion.
     if (status === 400 && /quota|limit|exhausted/i.test(body)) {
       return new AIError("quota", "Gemini quota exhausted", { providerId: this.id });

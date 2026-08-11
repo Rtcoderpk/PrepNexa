@@ -219,6 +219,12 @@ export async function logAiUsage(params: {
   success?: boolean;
   errorKind?: string;
   latencyMs?: number;
+  /** Number of attempts before this outcome (includes retries). */
+  attempts?: number;
+  /** Provider we fell back FROM (set only when fallback occurred). */
+  fallbackFrom?: string;
+  /** Provider we fell back TO (set only when fallback occurred). */
+  fallbackTo?: string;
 }): Promise<void> {
   try {
     const client = tryGetAdmin() ?? (await createClient());
@@ -230,6 +236,9 @@ export async function logAiUsage(params: {
       success: params.success ?? true,
       error_kind: params.errorKind ?? null,
       latency_ms: params.latencyMs ?? null,
+      attempts: params.attempts ?? 1,
+      fallback_from: params.fallbackFrom ?? null,
+      fallback_to: params.fallbackTo ?? null,
     });
   } catch {
     // Non-critical accounting — never fail the request.

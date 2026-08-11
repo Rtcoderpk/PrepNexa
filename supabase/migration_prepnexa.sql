@@ -106,6 +106,11 @@ create table if not exists public.ai_usage_logs (
   created_at timestamptz not null default now()
 );
 
+-- Observability: retry + fallback telemetry (added by P1 hardening).
+alter table public.ai_usage_logs add column if not exists attempts integer not null default 0;
+alter table public.ai_usage_logs add column if not exists fallback_from text;
+alter table public.ai_usage_logs add column if not exists fallback_to text;
+
 create index if not exists ai_usage_logs_user_id_idx on public.ai_usage_logs(user_id);
 create index if not exists ai_usage_logs_created_at_idx on public.ai_usage_logs(created_at desc);
 

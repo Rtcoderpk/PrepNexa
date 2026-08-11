@@ -79,6 +79,11 @@ export class OpenRouterProvider implements AIProvider {
         retryAfterSec: parseRetryAfter(body),
       });
     }
+    // 401/403 = invalid/forbidden credentials — a configuration problem, not a
+    // transient provider availability issue. Do not fail over to another provider.
+    if (status === 401 || status === 403) {
+      return new AIError("config", `OpenRouter credentials rejected (${status})`, { providerId: this.id });
+    }
     if (status >= 500) {
       return new AIError("server_error", `OpenRouter server error (${status})`, { providerId: this.id });
     }

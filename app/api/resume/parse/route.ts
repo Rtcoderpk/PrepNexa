@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { parseResumePdf } from "@/services/resume";
 
 export const runtime = "nodejs";
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!rateLimit(`resume-parse:${user.id}`, 20)) {
+  if (!(await rateLimitAsync(`resume-parse:${user.id}`, 20))) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
       { status: 429 },

@@ -100,6 +100,7 @@ export async function generateOpeningQuestion(params: {
   history: ChatMessage[];
   totalQuestions: number;
   userId?: string;
+  dedupKey?: string;
 }): Promise<{ content: string; category: QuestionCategory }> {
   const provider = createLLMProvider();
   const category: QuestionCategory = "introduction";
@@ -126,6 +127,7 @@ export async function generateOpeningQuestion(params: {
     temperature: 0.7,
     maxOutputTokens: 300,
     userId: params.userId,
+    dedupKey: params.dedupKey,
   });
 
   return { content, category };
@@ -139,6 +141,7 @@ export async function generateNextQuestion(params: {
   latestAnswer?: string;
   isFollowUp?: boolean;
   userId?: string;
+  dedupKey?: string;
 }): Promise<{
   content: string;
   category: QuestionCategory;
@@ -193,6 +196,7 @@ export async function generateNextQuestion(params: {
     temperature: 0.7,
     maxOutputTokens: 300,
     userId: params.userId,
+    dedupKey: params.dedupKey,
   });
 
   return {

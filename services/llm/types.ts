@@ -29,6 +29,8 @@ export interface ChatOptions {
   format?: "json" | undefined;
   /** Optional user id — used for per-user AI budget guardrails. */
   userId?: string;
+  /** Optional idempotency key — a concurrent duplicate request is not re-fired. */
+  dedupKey?: string;
 }
 
 export interface EmbeddingResult {

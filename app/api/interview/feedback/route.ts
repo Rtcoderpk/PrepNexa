@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { generateFeedback, saveFeedback, loadInterviewTelemetry } from "@/services/feedback";
 import {
   enqueueFeedback,
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!rateLimit(`feedback:${user.id}`, 5)) {
+  if (!(await rateLimitAsync(`feedback:${user.id}`, 5))) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
       { status: 429 },

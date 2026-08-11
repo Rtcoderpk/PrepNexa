@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { pythonai } from "@/services/pythonai";
 
 export const runtime = "nodejs";
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!rateLimit(`transcribe:${user.id}`, 20)) {
+  if (!(await rateLimitAsync(`transcribe:${user.id}`, 20))) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
       { status: 429 },

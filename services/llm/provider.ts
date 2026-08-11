@@ -40,7 +40,7 @@ class RoutedLLMProvider implements ILLMProvider {
         timeoutMs: options.timeoutMs,
         format: options.format,
       },
-      { userId: options.userId },
+      { userId: options.userId, dedupKey: options.dedupKey },
     );
   }
 
@@ -55,7 +55,7 @@ class RoutedLLMProvider implements ILLMProvider {
         timeoutMs: options.timeoutMs,
         format: options.format,
       },
-      { userId: options.userId },
+      { userId: options.userId, dedupKey: options.dedupKey },
     );
     for await (const chunk of iterable) {
       yield chunk;

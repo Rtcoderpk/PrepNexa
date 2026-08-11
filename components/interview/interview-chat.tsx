@@ -41,6 +41,12 @@ function isTransientAIError(error: unknown): boolean {
   );
 }
 
+/** The per-user AI budget guardrail message emitted by the router. */
+function isBudgetLimitError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes("AI usage limit");
+}
+
 export function InterviewChat({
   info,
   initialQuestions,
@@ -347,7 +353,11 @@ export function InterviewChat({
         setIsThinking(false);
         // Never surface raw provider errors. AI failures preserve the answer
         // (persisted server-side) so the interview can continue/reconnect.
-        if (isTransientAIError(error)) {
+        if (isBudgetLimitError(error)) {
+          toast.error(
+            "You've reached your AI usage limit for now. Please try again later.",
+          );
+        } else if (isTransientAIError(error)) {
           toast.error(
             "AI is temporarily busy. We're automatically switching to another AI engine. Your answer is saved.",
           );
