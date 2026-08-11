@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import {
   parseResumePdf,
   uploadResumeToStorage,
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!rateLimit(`resume:${user.id}`)) {
+  if (!(await rateLimitAsync(`resume:${user.id}`))) {
     return NextResponse.json(
       { error: "Too many uploads. Please try again later." },
       { status: 429 },

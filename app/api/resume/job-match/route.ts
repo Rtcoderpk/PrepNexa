@@ -86,8 +86,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: friendlyAIErrorMessage(error),
+        // Surface the AI budget-limit case so the client can show a specific
+        // message instead of the generic "temporarily busy" text.
+        budgetLimit: isAiBudgetLimitError(error),
       },
       { status: 500 },
     );
   }
+}
+
+/** True when the error is the per-user AI budget rejection. */
+function isAiBudgetLimitError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes("AI usage limit");
 }

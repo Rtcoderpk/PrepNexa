@@ -86,6 +86,12 @@ export function JobMatchAnalyzer() {
       });
       const data = await response.json();
       if (!response.ok) {
+        if (data.budgetLimit) {
+          toast.error(
+            "You've reached your AI usage limit for now. Please try again later.",
+          );
+          return;
+        }
         throw new Error(data.error ?? "Match failed");
       }
       setReport(data);

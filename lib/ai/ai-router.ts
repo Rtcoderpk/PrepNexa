@@ -243,9 +243,35 @@ export async function generateAIStream(
   const task = options.task;
   const capabilities = options.capabilities;
 
+  // Per-user AI budget reservation + dedup, mirroring generateAIResponse so a
+  // streaming request is just as gated as a non-streaming one. Declared here so
+  // the wrapped generator's finally can release them. The non-stream fallback
+  // path does NOT reserve here (generateAIResponse reserves itself) to avoid
+  // double-reservation.
+  let budgetReserved = false;
+  let streamSucceeded = false;
+  let dedupStarted = false;
+
+  if (routeOptions.dedupKey) {
+    dedupStarted = beginInFlight(task, routeOptions.dedupKey);
+    if (!dedupStarted) {
+      throw new AIError("response", "A similar request is already in progress");
+    }
+  }
+  if (routeOptions.userId) {
+    const budget = await reserveAiBudget(routeOptions.userId);
+    if (!budget.allowed) {
+      if (dedupStarted) endInFlight(task, routeOptions.dedupKey!);
+      throw new AIError("response", "You've reached your AI usage limit for now. Please try again later.");
+    }
+    budgetReserved = true;
+  }
+
   const providers = await candidateProviders(task, capabilities);
 
   if (providers.length === 0) {
+    if (budgetReserved) void releaseAiBudget(routeOptions.userId);
+    if (dedupStarted) endInFlight(task, routeOptions.dedupKey!);
     throw new AIError("config", "No AI provider is currently available. Please try again in a moment.");
   }
 
@@ -260,7 +286,22 @@ export async function generateAIStream(
         model: model.model,
       });
       recordRequest(task);
-      return stream;
+      // Wrap so budget/dedup are released when the stream errors or is
+      // abandoned — a streaming request must not leak its reservation. Mirrors
+      // generateAIResponse: on SUCCESS the slot is kept (consumed), so a
+      // streaming call counts against the budget the same way a non-streaming
+      // one does.
+      return (async function* () {
+        try {
+          yield* stream;
+          streamSucceeded = true;
+        } finally {
+          if (budgetReserved && !streamSucceeded) {
+            void releaseAiBudget(routeOptions.userId);
+          }
+          if (dedupStarted) endInFlight(task, routeOptions.dedupKey!);
+        }
+      })();
     } catch (error) {
       recordFailure(provider.id, isAIError(error) ? error.kind : "response");
       // Try the next streaming provider.
@@ -268,7 +309,10 @@ export async function generateAIStream(
   }
 
   // No streaming-capable provider — fall back to a single non-streamed response.
-  // The budget reservation is handled inside generateAIResponse.
+  // generateAIResponse handles its own reservation/dedup; release ours first so
+  // the fallback reserves exactly once.
+  if (budgetReserved) void releaseAiBudget(routeOptions.userId);
+  if (dedupStarted) endInFlight(task, routeOptions.dedupKey!);
   const text = await generateAIResponse(options, routeOptions);
   return (async function* () {
     yield text;

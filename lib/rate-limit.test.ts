@@ -108,3 +108,34 @@ describe("rateLimit — sync memory (unchanged)", () => {
     expect(rateLimit("k", 2)).toBe(false);
   });
 });
+
+// ---- P7-F3: upload-resume uses rateLimitAsync (multi-instance consistent) ----
+describe("upload-resume rate-limit consistency (P7-F3)", () => {
+  it("upload-resume route uses rateLimitAsync, not the sync memory limiter", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("app/api/upload-resume/route.ts", "utf8");
+    expect(src).toContain("rateLimitAsync");
+    expect(src).not.toContain("rateLimit(");
+    // Same per-user key + default limit preserved.
+    expect(src).toContain("rateLimitAsync(`resume:${user.id}`)");
+  });
+});
+
+// ---- P7-F4: resume routes expose the AI budget-limit signal ----
+describe("resume budget-limit flag (P7-F4)", () => {
+  it("analyze-upload returns a budgetLimit flag + sanitized error", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("app/api/resume/analyze-upload/route.ts", "utf8");
+    expect(src).toContain("budgetLimit");
+    expect(src).toContain("isAiBudgetLimitError");
+    expect(src).toContain("friendlyAIErrorMessage");
+  });
+
+  it("job-match returns a budgetLimit flag + sanitized error", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("app/api/resume/job-match/route.ts", "utf8");
+    expect(src).toContain("budgetLimit");
+    expect(src).toContain("isAiBudgetLimitError");
+    expect(src).toContain("friendlyAIErrorMessage");
+  });
+});

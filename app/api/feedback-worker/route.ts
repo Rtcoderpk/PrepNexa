@@ -28,6 +28,11 @@ export async function GET(request: NextRequest) {
       resumeContext: job.resumeContext,
       history: job.history,
       telemetry: job.telemetry,
+      // Attribute the queued feedback to its verified owner so the AI budget
+      // and ai_usage_logs are tied to the correct user. job.userId is set by
+      // enqueueFeedback from the authenticated session — never client-supplied.
+      // Missing owner (legacy jobs) is handled safely by the router (no budget).
+      userId: job.userId ?? undefined,
     });
     await saveFeedback(
       {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { parseFeedbackReportJson } from "@/lib/feedback";
 import { clampSpeech, clampVision } from "@/lib/validations";
 
@@ -89,5 +89,64 @@ describe("clampVision", () => {
     expect(out.smilePct).toBe(100);
     expect(out.postureScore).toBe(1);
     expect(out.blinkRatePerMin).toBe(600);
+  });
+});
+
+// ---- P7-F2: generateFeedback forwards userId (budget + telemetry attribution) --
+const fbChatMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/services/llm/provider", () => ({
+  createLLMProvider: () => ({
+    chat: fbChatMock,
+    embed: vi.fn(),
+    ping: vi.fn(),
+  }),
+}));
+
+describe("generateFeedback userId attribution (P7-F2)", () => {
+  beforeEach(() => {
+    fbChatMock.mockReset().mockResolvedValue(
+      JSON.stringify({
+        overall_score: 8,
+        summary: "s",
+        strengths: ["a"],
+        weaknesses: ["b"],
+        areas_to_improve: ["c"],
+        technical_score: 8,
+        communication_score: 8,
+        confidence_score: 8,
+        grammar_score: 8,
+        speaking_speed_score: 8,
+        eye_contact_score: 8,
+        body_language_score: 8,
+        hiring_recommendation: "yes",
+        star_evaluation: "x",
+        improvement_roadmap: "y",
+        per_question_notes: [],
+      }),
+    );
+  });
+
+  it("passes userId through to the LLM so the router attributes budget/telemetry", async () => {
+    const { generateFeedback } = await import("@/services/feedback");
+    fbChatMock.mockClear();
+    await generateFeedback({
+      role: "engineer",
+      history: [{ role: "user", content: "hello" }],
+      userId: "user-42",
+    });
+    const opts = fbChatMock.mock.calls[0][0];
+    expect(opts.userId).toBe("user-42");
+  });
+
+  it("handles a missing userId safely (no userId passed)", async () => {
+    const { generateFeedback } = await import("@/services/feedback");
+    fbChatMock.mockClear();
+    await generateFeedback({
+      role: "engineer",
+      history: [{ role: "user", content: "hello" }],
+    });
+    const opts = fbChatMock.mock.calls[0][0];
+    expect(opts.userId).toBeUndefined();
   });
 });

@@ -399,6 +399,88 @@ describe("token telemetry (P3)", () => {
   });
 });
 
+// ---- P7-F1: streaming budget + idempotency -------------------------
+describe("generateAIStream budget/dedup (P7-F1)", () => {
+  it("reserves budget + dedup at stream start and keeps the slot on success", async () => {
+    const streamable = fakeProvider("groq", 10, "ok");
+    streamable.stream = async function* () {
+      yield "chunk";
+    };
+    setProviders([streamable]);
+    reserveMock.mockClear();
+    releaseMock.mockClear();
+    const iterable = await generateAIStream(
+      { task, messages: [] },
+      { userId: "u1", dedupKey: "s1" },
+    );
+    const chunks: string[] = [];
+    for await (const c of iterable) chunks.push(c);
+    expect(chunks).toEqual(["chunk"]);
+    // Reserved exactly once at stream start. On SUCCESS the reservation is
+    // consumed (like generateAIResponse) — not released.
+    expect(reserveMock).toHaveBeenCalledTimes(1);
+    expect(releaseMock).not.toHaveBeenCalled();
+  });
+
+  it("releases the budget reservation when a stream fails mid-flight", async () => {
+    const streamable = fakeProvider("groq", 10, "ok");
+    streamable.stream = async function* () {
+      yield "partial";
+      throw new AIError("server_error", "stream broke", { providerId: "groq" });
+    };
+    setProviders([streamable]);
+    reserveMock.mockClear();
+    releaseMock.mockClear();
+    const iterable = await generateAIStream(
+      { task, messages: [] },
+      { userId: "u1", dedupKey: "s1" },
+    );
+    const chunks: string[] = [];
+    await expect(async () => {
+      for await (const c of iterable) chunks.push(c);
+    }).rejects.toThrow("stream broke");
+    expect(chunks).toEqual(["partial"]);
+    // Failed request rolls back its slot (mirrors generateAIResponse).
+    expect(releaseMock).toHaveBeenCalledWith("u1");
+  });
+
+  it("rejects a duplicate stream (dedup before dispatch) without reserving budget", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const streamable = fakeProvider("groq", 10, "ok");
+    streamable.stream = async function* () {
+      await gate;
+      yield "x";
+    };
+    setProviders([streamable]);
+    reserveMock.mockClear();
+    const first = generateAIStream(
+      { task, messages: [] },
+      { userId: "u1", dedupKey: "s2" },
+    );
+    const second = generateAIStream(
+      { task, messages: [] },
+      { userId: "u1", dedupKey: "s2" },
+    );
+    await expect(second).rejects.toThrow("already in progress");
+    // Only the first reserved (duplicate rejected before budget).
+    expect(reserveMock).toHaveBeenCalledTimes(1);
+    release!();
+    const it = await first;
+    const chunks: string[] = [];
+    for await (const c of it) chunks.push(c);
+    expect(chunks).toEqual(["x"]);
+  });
+
+  it("rejects over-budget stream before dispatch (no provider call)", async () => {
+    reserveMock.mockResolvedValue({ allowed: false, reason: "daily" });
+    setProviders([fakeProvider("groq", 10, "ok")]);
+    await expect(
+      generateAIStream({ task, messages: [] }, { userId: "u1" }),
+    ).rejects.toThrow("AI usage limit");
+  });
+});
+
 // ---- Quota deprioritization + recovery ----------------------------
 describe("quota-aware deprioritization", () => {
   it("puts a quota'd provider on cooldown so the next provider is used", async () => {

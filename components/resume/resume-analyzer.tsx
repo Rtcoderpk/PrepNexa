@@ -154,6 +154,12 @@ export function ResumeAnalyzer({
             );
             return;
           }
+          if (data.budgetLimit) {
+            toast.error(
+              "You've reached your AI usage limit for now. Please try again later.",
+            );
+            return;
+          }
           throw new Error(data.error ?? "Analysis failed");
         }
 
