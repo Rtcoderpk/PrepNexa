@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { parseResumePdf } from "@/services/resume";
 import { analyzeResume } from "@/services/resume-analysis";
@@ -56,9 +55,11 @@ export async function POST(request: NextRequest) {
 
     const { count } = await consumeResumeAnalysis(user.id);
 
+    // Persist via the authenticated session client — RLS grants the owner an
+    // "insertable" policy on resume_analyses, so no service-role key is needed
+    // and telemetry is not silently dropped when one is absent.
     try {
-      const admin = createAdminClient();
-      await admin.from("resume_analyses").insert({
+      await supabase.from("resume_analyses").insert({
         user_id: user.id,
         ats_score: result.atsScore,
         quality_score: result.qualityScore,

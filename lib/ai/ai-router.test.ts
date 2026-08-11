@@ -306,10 +306,18 @@ describe("dedupKey (duplicate dispatch protection)", () => {
       return "slow reply";
     };
     setProviders([slow]);
-    const first = generateAIResponse({ task, messages: [] }, { dedupKey: "k1" });
-    const second = generateAIResponse({ task, messages: [] }, { dedupKey: "k1" });
+    const first = generateAIResponse(
+      { task, messages: [] },
+      { dedupKey: "k1", userId: "u1" },
+    );
+    const second = generateAIResponse(
+      { task, messages: [] },
+      { dedupKey: "k1", userId: "u1" },
+    );
     // The duplicate should fail fast while the first is still in flight.
     await expect(second).rejects.toThrow("already in progress");
+    // The duplicate is rejected BEFORE budget reservation — no budget leak.
+    expect(reserveMock).toHaveBeenCalledTimes(1); // only the first reserved
     resolveFirst!();
     await expect(first).resolves.toBe("slow reply");
     // After completion the key is released — a new call proceeds.

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { z } from "zod";
 import { matchResumeToJob } from "@/services/resume-analysis";
+import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
 import { getUsageStatus } from "@/lib/usage";
 
 export const runtime = "nodejs";
@@ -69,8 +69,9 @@ export async function POST(request: NextRequest) {
     );
 
     try {
-      const admin = createAdminClient();
-      await admin.from("resume_analyses").insert({
+      // Session client — RLS allows the owner to insert resume_analyses, so no
+      // service-role key is required and telemetry is not silently dropped.
+      await supabase.from("resume_analyses").insert({
         user_id: user.id,
         job_match_score: result.match_score,
         has_job_description: true,
@@ -84,10 +85,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "We couldn't match your resume right now. Please try again.",
+        error: friendlyAIErrorMessage(error),
       },
       { status: 500 },
     );

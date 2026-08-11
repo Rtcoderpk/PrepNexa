@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { drainFeedbackQueue } from "@/lib/feedback-queue";
 import { generateFeedback, saveFeedback } from "@/services/feedback";
+import { verifyWorkerSecret } from "@/lib/feedback-worker-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -14,7 +15,7 @@ const WORKER_SECRET = process.env.FEEDBACK_WORKER_SECRET;
  * off the request path. Protected by FEEDBACK_WORKER_SECRET.
  */
 export async function GET(request: NextRequest) {
-  if (!WORKER_SECRET || request.headers.get("x-worker-secret") !== WORKER_SECRET) {
+  if (!verifyWorkerSecret(request, WORKER_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
