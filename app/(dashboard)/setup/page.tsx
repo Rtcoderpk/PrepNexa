@@ -41,8 +41,8 @@ export default async function SetupPage() {
         <SetupForm />
       ) : (
         <ProCtaCard
-          title="You've used your free interview"
-          description="Upgrade to PrepNexa Pro to keep practicing with advanced feedback, resume analysis, and job matching."
+          title="You've used all 3 free mock interviews"
+          description="Upgrade your plan to continue practicing with advanced feedback, resume analysis, and job matching."
         />
       )}
     </div>

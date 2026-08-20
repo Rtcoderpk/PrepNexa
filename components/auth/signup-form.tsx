@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, UserPlus } from "lucide-react";
 import { signupAction } from "@/actions/auth";
@@ -13,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function SignupForm() {
-  const router = useRouter();
   const [isPending, setIsPending] = useState(false);
 
   const {
@@ -42,10 +40,11 @@ export function SignupForm() {
       const result = await signupAction(formData);
       if (result?.error) {
         toast.error(result.error);
-      } else {
-        toast.success("Account created! Check your email to confirm.");
-        router.push("/login");
+        return;
       }
+      // On success signupAction redirects to /login?message=… server-side, so
+      // the single success toast comes from the login page — avoid a duplicate
+      // here or a navigation that races the server redirect.
     } catch {
       toast.error("Something went wrong. Please try again.");
     } finally {

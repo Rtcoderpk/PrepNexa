@@ -124,7 +124,7 @@ export default async function ResultsPage({
       {/* Post-free-interview conversion for free users */}
       {!isPremium && (
         <ProCtaCard
-          title="You've completed your free interview."
+          title="You've used one of your free interviews."
           description="Ready for your next interview? Upgrade to PrepNexa Pro and keep practicing with advanced feedback, resume analysis, and job matching."
         />
       )}

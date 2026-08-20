@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -17,6 +17,7 @@ export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const message = searchParams.get("message");
+  const messageShown = useRef(false);
   const [isPending, setIsPending] = useState(false);
 
   const {
@@ -28,9 +29,14 @@ export function LoginForm() {
     defaultValues: { email: "", password: "" },
   });
 
-  if (message) {
-    toast.success(message);
-  }
+  // Show the signup-success message exactly once (React strict-mode safe). If
+  // it stayed in the render body, every re-render re-fires the toast.
+  useEffect(() => {
+    if (message && !messageShown.current) {
+      messageShown.current = true;
+      toast.success(message);
+    }
+  }, [message]);
 
   const onSubmit = handleSubmit(async (values) => {
     setIsPending(true);

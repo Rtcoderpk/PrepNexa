@@ -3,13 +3,19 @@ import { createClient } from "@/lib/supabase/server";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { sanitizeAnswer } from "@/lib/security";
 import { respondInterviewSchema, respondTelemetrySchema } from "@/lib/validations";
-import { generateNextQuestion, isCompletionMessage } from "@/services/interview";
+import {
+  generateNextQuestion,
+  isCompletionMessage,
+  getMaxQuestions,
+  COMPLETION_PHRASE,
+} from "@/services/interview";
 import {
   persistAnswerTelemetry,
   clampSpeech,
   clampVision,
 } from "@/services/telemetry";
 import { aiErrorPayload } from "@/lib/ai/friendly-errors";
+import { consumeFreeInterview } from "@/lib/usage";
 
 export const runtime = "nodejs";
 
@@ -134,6 +140,35 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Authoritative question count from the DATABASE — never the client's message
+  // array. Count only MAIN questions (follow-ups don't advance the interview).
+  // Hard cap at max questions: after Qmax, transition straight to completion.
+  const maxQuestions = getMaxQuestions();
+  const { count: dbQuestionCount } = await supabase
+    .from("interview_questions")
+    .select("id", { count: "exact", head: true })
+    .eq("interview_id", interview.id)
+    .eq("is_follow_up", false);
+
+  if ((dbQuestionCount ?? 0) >= maxQuestions) {
+    await supabase
+      .from("interviews")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", interview.id);
+    await consumeFreeInterview(user.id, interview.id).catch(() => {});
+
+    return NextResponse.json({
+      message: COMPLETION_PHRASE,
+      category: "problem_solving",
+      isFollowUp: false,
+      isComplete: true,
+      questionId: lastQuestion?.id ?? "",
+    });
+  }
+
   const previousMessages = Array.isArray(body)
     ? []
     : ((body as any)?.messages ?? []);
@@ -194,6 +229,7 @@ export async function POST(request: NextRequest) {
           completed_at: new Date().toISOString(),
         })
         .eq("id", interview.id);
+      await consumeFreeInterview(user.id, interview.id).catch(() => {});
     }
 
     return NextResponse.json({

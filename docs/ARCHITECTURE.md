@@ -22,7 +22,7 @@ optional self-hosted pythonai service for Faster Whisper).
 - Cloud AI only — multiple legitimate providers behind a single router.
 - Provider abstraction so models/providers can change without touching business logic.
 - Automatic failover, retries with backoff, provider health tracking, and graceful degradation.
-- Server-side usage enforcement (1 free interview, 3 free resume checks, Premium).
+- Server-side usage enforcement (3 free interviews, 3 free resume checks, Premium).
 - Real-time confidence, eye contact, gaze, blink, head pose, and posture analysis running in-browser (privacy-friendly, zero server cost).
 - Multi-dimensional, production-ready feedback and reporting.
 - SaaS-grade scalability: stateless API, Docker, Redis-ready, queue-ready.
@@ -86,7 +86,7 @@ completeness, and clarity. Embedding-based cosine scoring is optional via
 pythonai. Evaluation never blocks or breaks the interview flow.
 
 ### ADR-6: Server-side usage + entitlement
-Plan limits (1 free interview, 3 free resume checks, Premium) are enforced in
+Plan limits (3 free interviews, 3 free resume checks, Premium) are enforced in
 `lib/usage.ts` against the database via an RLS-bypassing admin client. Client
 state (localStorage/cookies) is never trusted for enforcement. Payment success
 is verified only via `lib/payments/webhook.ts`.

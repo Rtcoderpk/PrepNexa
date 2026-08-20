@@ -44,7 +44,7 @@ export default function TermsPage() {
             3. Accounts & fair use
           </h2>
           <p>
-            Free accounts receive 1 AI mock interview and 3 resume checks.
+            Free accounts receive 3 AI mock interviews and 3 resume checks.
             Premium (Pro) users get more interviews subject to reasonable
             fair-use limits. Creating multiple accounts to bypass limits is not
             permitted.

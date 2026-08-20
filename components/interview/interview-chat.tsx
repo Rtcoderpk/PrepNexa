@@ -52,17 +52,22 @@ export function InterviewChat({
   info,
   initialQuestions,
   maxQuestions,
+  initiallyEnded = false,
 }: {
   info: { id: string; jobRole: string | null };
   initialQuestions: ExistingQuestion[];
   maxQuestions: number;
+  initiallyEnded?: boolean;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isThinking, setIsThinking] = useState(false);
-  const [isEnded, setIsEnded] = useState(false);
+  const [isEnded, setIsEnded] = useState(initiallyEnded);
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Guards against a double-click / double-Enter submitting the same answer
+  // twice before the first request resolves.
+  const submitInFlightRef = useRef(false);
   const { speak, isSupported: ttsSupported, isSpeaking, muted, toggleMute } =
     useSpeechSynthesis();
   const vision = useVisionMetrics();
@@ -297,6 +302,12 @@ export function InterviewChat({
   const handleSend = useCallback(
     async (text: string) => {
       if (isEnded || isThinking || isGeneratingFeedback) return;
+      if (submitInFlightRef.current) return;
+      submitInFlightRef.current = true;
+
+      const finish = () => {
+        submitInFlightRef.current = false;
+      };
 
       // Start sampling metrics for the answer about to be recorded.
       vision.beginWindow();
@@ -354,12 +365,14 @@ export function InterviewChat({
 
         if (isComplete) {
           setIsEnded(true);
-          setIsGeneratingFeedback(true);
-          toast.success("Interview complete! Generating your feedback…");
-          await generateFeedback();
+          finish();
+          toast.success("Interview complete. Review your answers, then finish to see results.");
+          return;
         }
+        finish();
       } catch (error) {
         setIsThinking(false);
+        finish();
         // Never surface raw provider errors. AI failures preserve the answer
         // (persisted server-side) so the interview can continue/reconnect.
         if (
@@ -382,7 +395,7 @@ export function InterviewChat({
         }
       }
     },
-    [info.id, isEnded, isThinking, isGeneratingFeedback, messages, vision, audioRecorder, collectAnswerTelemetry, buildLocalSpeech, generateFeedback],
+    [info.id, isEnded, isThinking, isGeneratingFeedback, messages, vision, audioRecorder, collectAnswerTelemetry, buildLocalSpeech],
   );
 
   const handleCameraToggle = useCallback(() => {
@@ -465,6 +478,31 @@ export function InterviewChat({
           </motion.div>
         )}
       </div>
+
+      {/* Completion action */}
+      {isEnded && !isGeneratingFeedback && (
+        <div className="border-t border-border/60 px-4 py-3">
+          <Button
+            size="lg"
+            variant="gradient"
+            className="w-full"
+            disabled={isGeneratingFeedback}
+            onClick={(e) => {
+              e.preventDefault();
+              setIsGeneratingFeedback(true);
+              toast.success("Generating your feedback…");
+              void generateFeedback();
+            }}
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            Finish Interview & View Results
+          </Button>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            You&apos;ve answered all 5 questions. Finish to generate your score
+            and feedback report.
+          </p>
+        </div>
+      )}
 
       {/* Footer input */}
       <div className="border-t border-border/60 p-3">

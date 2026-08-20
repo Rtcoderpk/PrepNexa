@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 /** Reusable final CTA band for marketing/SEO pages. */
 export function CTA({
   title = "Ready to become job-ready?",
-  subtitle = "Get 1 free AI mock interview and 3 free ATS resume checks. No credit card required.",
+  subtitle = "Get 3 free AI mock interviews and 3 free ATS resume checks. No credit card required.",
   className,
 }: {
   title?: string;
@@ -39,7 +39,7 @@ export function CTA({
         </Button>
       </div>
       <p className="relative mt-4 text-sm text-muted-foreground">
-        1 Free AI Interview + 3 Free Resume Checks
+        3 Free AI Interviews + 3 Free Resume Checks
       </p>
     </section>
   );

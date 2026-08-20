@@ -18,6 +18,16 @@
 alter table public.profiles
   add column if not exists free_interview_used boolean not null default false;
 
+-- Free-interview quota is counted as an integer (default 3 complete sessions).
+alter table public.profiles
+  add column if not exists free_interviews_used integer not null default 0;
+
+-- Backfill the new counter from the legacy boolean so existing accounts that
+-- already used their one free interview start at 1 rather than 0.
+update public.profiles
+   set free_interviews_used = 1
+ where free_interview_used = true;
+
 alter table public.profiles
   add column if not exists resume_analysis_count integer not null default 0;
 

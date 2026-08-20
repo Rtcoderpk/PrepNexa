@@ -15,10 +15,12 @@ import { getRedis } from "@/lib/redis";
  */
 
 const MAX_RESUME_CHECKS_FREE = PLANS.free.freeResumeChecks;
+const FREE_INTERVIEW_LIMIT = PLANS.free.freeInterviews;
 
 export interface UsageStatus {
   isPremium: boolean;
-  freeInterviewUsed: boolean;
+  freeInterviewsUsed: number;
+  freeInterviewsRemaining: number;
   resumeAnalysisCount: number;
   resumeChecksRemaining: number;
   canStartInterview: boolean;
@@ -49,7 +51,7 @@ export async function getUsageStatus(userId: string): Promise<UsageStatus> {
   const [profileRes, subRes] = await Promise.all([
     client
       .from("profiles")
-      .select("free_interview_used, resume_analysis_count, is_premium")
+      .select("free_interview_used, free_interviews_used, resume_analysis_count, is_premium")
       .eq("id", userId)
       .maybeSingle(),
     client
@@ -70,19 +72,27 @@ export async function getUsageStatus(userId: string): Promise<UsageStatus> {
       (sub.expiry_date === null ||
         new Date(sub.expiry_date).getTime() > Date.now()));
 
-  const freeInterviewUsed = profile?.free_interview_used === true;
+  // Backward-compatible count: old accounts recorded usage as a boolean
+  // (free_interview_used=true). Treat that as a single used credit.
+  const freeInterviewsUsed =
+    profile?.free_interviews_used ??
+    (profile?.free_interview_used === true ? 1 : 0);
   const resumeAnalysisCount = profile?.resume_analysis_count ?? 0;
 
   return {
     isPremium,
-    freeInterviewUsed,
+    freeInterviewsUsed,
+    freeInterviewsRemaining: Math.max(
+      0,
+      FREE_INTERVIEW_LIMIT - freeInterviewsUsed,
+    ),
     resumeAnalysisCount,
     resumeChecksRemaining: Math.max(
       0,
       MAX_RESUME_CHECKS_FREE - resumeAnalysisCount,
     ),
-    canStartInterview: isPremium || !freeInterviewUsed,
-    freeInterviewLimit: 1,
+    canStartInterview: isPremium || freeInterviewsUsed < FREE_INTERVIEW_LIMIT,
+    freeInterviewLimit: FREE_INTERVIEW_LIMIT,
     resumeCheckLimit: MAX_RESUME_CHECKS_FREE,
     subscriptionStatus: sub?.status,
     subscriptionExpiry: sub?.expiry_date,
@@ -90,21 +100,47 @@ export async function getUsageStatus(userId: string): Promise<UsageStatus> {
 }
 
 /**
- * Marks the user's free interview as used. Idempotent. Uses the session
- * client (owner RLS allows the profile update).
+ * Records one completed free interview against the user's quota. Runs only on
+ * successful completion (never on start/failure). The counter never exceeds the
+ * free limit; the caller passes the completed interview id so the same interview
+ * is not double-counted on reconnect/re-save.
  */
-export async function consumeFreeInterview(userId: string): Promise<void> {
+export async function consumeFreeInterview(
+  userId: string,
+  interviewId?: string,
+): Promise<void> {
   const client = await createClient();
-  await client
+
+  const { data } = await client
     .from("profiles")
-    .update({ free_interview_used: true })
-    .eq("id", userId);
+    .select("free_interviews_used, free_interview_used")
+    .eq("id", userId)
+    .maybeSingle();
+
+  // Old accounts: migrate the boolean to a count of 1.
+  const base = data?.free_interviews_used ?? 0;
+  const migratedBase = Math.max(base, data?.free_interview_used === true ? 1 : 0);
+  const currentUsed = migratedBase;
+
+  // Idempotency: only count an interview that is actually completed.
+  if (interviewId) {
+    const { data: counted } = await client
+      .from("interviews")
+      .select("id")
+      .eq("id", interviewId)
+      .eq("status", "completed")
+      .maybeSingle();
+    if (!counted) return;
+  }
+
+  const capped = Math.min(currentUsed + 1, FREE_INTERVIEW_LIMIT);
+  await client.from("profiles").update({ free_interviews_used: capped }).eq("id", userId);
 }
 
 /**
- * Server-side gate for starting a new interview. A free user may start exactly
- * one interview; they may re-enter an in-progress interview, but once one has
- * been created (free_interview_used=true) a NEW interview is blocked.
+ * Server-side gate for starting a new interview. A free user may start a new
+ * interview as long as they still have unused free credits. Re-entering an
+ * existing in-progress interview is allowed even after the quota is used.
  * Premium users are unlimited subject to fair-use limits.
  */
 export async function canUserStartInterview(
@@ -112,6 +148,22 @@ export async function canUserStartInterview(
 ): Promise<{ allowed: boolean; reason?: string; interviewId?: string }> {
   const status = await getUsageStatus(userId);
   const client = await createClient();
+
+  // Re-entry into an in-progress interview is always allowed — the user hasn't
+  // consumed a new credit by resuming.
+  if (!status.isPremium && status.freeInterviewsRemaining <= 0) {
+    const { data: inProgress } = await client
+      .from("interviews")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "in_progress")
+      .limit(1)
+      .maybeSingle();
+    if (inProgress) {
+      return { allowed: false, reason: "has_in_progress", interviewId: inProgress.id };
+    }
+    return { allowed: false, reason: "free_interview_used" };
+  }
 
   if (status.isPremium) {
     const { count } = await client
@@ -124,22 +176,6 @@ export async function canUserStartInterview(
       return { allowed: false, reason: "fair_use_limit" };
     }
     return { allowed: true };
-  }
-
-  // Free user: allowed until the free interview has been started.
-  if (status.freeInterviewUsed) {
-    // Allow re-entry into an existing in-progress interview only.
-    const { data: inProgress } = await client
-      .from("interviews")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("status", "in_progress")
-      .limit(1)
-      .maybeSingle();
-    if (inProgress) {
-      return { allowed: false, reason: "has_in_progress", interviewId: inProgress.id };
-    }
-    return { allowed: false, reason: "free_interview_used" };
   }
 
   return { allowed: true };

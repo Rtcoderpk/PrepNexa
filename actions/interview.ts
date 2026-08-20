@@ -5,7 +5,7 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import { sanitizeInput } from "@/lib/security";
 import { startInterviewSchema } from "@/lib/validations";
 import { createInterview } from "@/services/interview";
-import { canUserStartInterview, consumeFreeInterview } from "@/lib/usage";
+import { canUserStartInterview } from "@/lib/usage";
 
 export async function startInterviewAction(formData: FormData) {
   const supabase = await createClient();
@@ -25,7 +25,7 @@ export async function startInterviewAction(formData: FormData) {
   const gate = await canUserStartInterview(user.id);
   if (!gate.allowed) {
     return {
-      error: "You've used your free interview. Upgrade to PrepNexa Pro to keep practicing.",
+      error: "You've used all 3 free mock interviews. Upgrade your plan to continue practicing.",
     };
   }
 
@@ -65,13 +65,8 @@ export async function startInterviewAction(formData: FormData) {
     };
   }
 
-  // Consume the free interview on first successful start. Premium users are
-  // unaffected (they bypass the free-quota path entirely).
-  try {
-    await consumeFreeInterview(user.id);
-  } catch {
-    // Never block interview start on quota bookkeeping.
-  }
+  // Free credit is consumed on COMPLETION (see respond + results paths), never
+  // on start — so a failed/interrupted interview does not burn a free credit.
 
   const roleLabel =
     jobRole || (hasJobDescription ? "the role described in the job description" : "");

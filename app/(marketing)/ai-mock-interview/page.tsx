@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "AI Mock Interview — PrepNexa",
     description:
-      "Practice realistic AI mock interviews with instant, personalized feedback. 1 free interview.",
+      "Practice realistic AI mock interviews with instant, personalized feedback. 3 free interviews.",
     type: "website",
     url: "/ai-mock-interview",
   },
@@ -67,7 +67,7 @@ export default function AiMockInterviewPage() {
           </Button>
         </div>
         <p className="mt-4 text-sm text-muted-foreground">
-          1 free complete AI interview. Then PrepNexa Pro — PKR 499/month.
+          3 free complete AI interviews. Then PrepNexa Pro — PKR 499/month.
         </p>
       </div>
 

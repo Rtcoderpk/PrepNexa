@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import {
   LayoutDashboard,
@@ -9,8 +9,8 @@ import {
   LogOut,
   Menu,
   X,
-  Settings,
   Activity,
+  FileText,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/setup", label: "New Interview", icon: Sparkles },
+  { href: "/free-ats-resume-checker", label: "Resume / ATS", icon: FileText },
   { href: "/history", label: "History", icon: Activity },
 ];
 
@@ -44,13 +45,12 @@ export function DashboardShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleSignOut = async () => {
+    // signOutAction redirects to /login server-side; replace avoids stacking
+    // history entries and skips the extra client refresh.
     await signOutAction();
-    router.push("/login");
-    router.refresh();
   };
 
   const name =

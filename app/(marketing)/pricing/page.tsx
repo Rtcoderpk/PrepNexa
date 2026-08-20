@@ -12,12 +12,12 @@ import { getUsageStatus } from "@/lib/usage";
 export const metadata: Metadata = {
   title: "Pricing — PrepNexa Pro (PKR 499/month) or Free",
   description:
-    "PrepNexa pricing: start free with 1 AI mock interview and 3 ATS resume checks, or upgrade to Pro for PKR 499/month for unlimited practice, advanced feedback, and job matching.",
+    "PrepNexa pricing: start free with 3 AI mock interviews and 3 ATS resume checks, or upgrade to Pro for PKR 499/month for unlimited practice, advanced feedback, and job matching.",
   alternates: { canonical: "/pricing" },
   openGraph: {
     title: "Pricing — PrepNexa",
     description:
-      "Free AI mock interview + 3 resume checks, or PrepNexa Pro for PKR 499/month.",
+      "3 free AI mock interviews + 3 resume checks, or PrepNexa Pro for PKR 499/month.",
     type: "website",
     url: "/pricing",
   },
@@ -146,8 +146,8 @@ export default async function PricingPage() {
 
         <div className="mx-auto mt-12 max-w-3xl text-center text-sm text-muted-foreground">
           <p>
-            Need help choosing? Every new account gets 1 free AI interview and 3
-            free resume checks — no credit card required.
+            Need help choosing? Every new account gets 3 free AI mock interviews
+            and 3 free resume checks — no credit card required.
           </p>
         </div>
       </div>

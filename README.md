@@ -23,7 +23,7 @@ one cloud AI provider key.
 - **Free ATS Resume Checker** — analyze a resume for ATS compatibility, quality, structure, keywords, action verbs, and measurable achievements
 - **Resume Analyzer** — AI resume analysis with improvement recommendations that stay faithful to your actual resume
 - **Job Description Matching** — paste a JD, get a match score, missing keywords, and recommended changes
-- **Plans** — Free (1 AI interview + 3 resume checks) vs **PrepNexa Pro (PKR 499/month)**
+- **Plans** — Free (3 AI interviews + 3 resume checks) vs **PrepNexa Pro (PKR 499/month)**
 - **Ads** — free users see ad slots; Pro is ad-free
 
 ## Tech Stack

@@ -7,6 +7,7 @@ export interface Database {
           full_name: string | null;
           avatar_url: string | null;
           free_interview_used: boolean;
+          free_interviews_used: number;
           resume_analysis_count: number;
           is_premium: boolean;
           created_at: string;
@@ -17,6 +18,7 @@ export interface Database {
           full_name?: string | null;
           avatar_url?: string | null;
           free_interview_used?: boolean;
+          free_interviews_used?: number;
           resume_analysis_count?: number;
           is_premium?: boolean;
           created_at?: string;
@@ -26,6 +28,7 @@ export interface Database {
           full_name?: string | null;
           avatar_url?: string | null;
           free_interview_used?: boolean;
+          free_interviews_used?: number;
           resume_analysis_count?: number;
           is_premium?: boolean;
           updated_at?: string;

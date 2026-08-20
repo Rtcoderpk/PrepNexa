@@ -8,11 +8,11 @@ export const PLANS = {
     id: "free",
     name: "Free",
     priceMonthlyPkr: 0,
-    freeInterviews: 1,
+    freeInterviews: 3,
     freeResumeChecks: 3,
     ads: true,
     features: [
-      "1 complete AI mock interview",
+      "3 complete AI mock interviews",
       "Basic interview score",
       "Basic feedback",
       "3 free ATS resume checks",
@@ -53,11 +53,11 @@ export const PRO_FAIR_USE_LIMIT = 30;
 
 /**
  * True when a user can start another AI interview. Premium is unlimited subject
- * to fair-use limits; free users get exactly one complete interview.
+ * to fair-use limits; free users get up to `freeInterviews` complete sessions.
  */
 export function canStartInterview(params: {
   isPremium: boolean;
-  freeInterviewUsed: boolean;
+  freeInterviewsUsed: number;
   completedInterviews: number;
 }): { allowed: boolean; reason?: "free_interview_used" | "fair_use_limit" } {
   if (params.isPremium) {
@@ -66,7 +66,7 @@ export function canStartInterview(params: {
     }
     return { allowed: true };
   }
-  if (params.freeInterviewUsed) {
+  if (params.freeInterviewsUsed >= PLANS.free.freeInterviews) {
     return { allowed: false, reason: "free_interview_used" };
   }
   return { allowed: true };

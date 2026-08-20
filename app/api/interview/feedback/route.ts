@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { generateFeedback, saveFeedback, loadInterviewTelemetry } from "@/services/feedback";
+import { consumeFreeInterview } from "@/lib/usage";
 import {
   enqueueFeedback,
   isFeedbackQueued,
@@ -126,6 +127,11 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       report,
     });
+
+    // The interview is now fully completed — count it against the user's free
+    // quota. Idempotent (status already completed by saveFeedback), so a report
+    // saved more than once never double-counts.
+    await consumeFreeInterview(user.id, interview.id).catch(() => {});
 
     return NextResponse.json({ feedback: report });
   } catch (error) {

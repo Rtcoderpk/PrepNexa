@@ -4,7 +4,7 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import { sanitizeInput } from "@/lib/security";
 import { startInterviewSchema } from "@/lib/validations";
 import { createInterview } from "@/services/interview";
-import { canUserStartInterview, consumeFreeInterview } from "@/lib/usage";
+import { canUserStartInterview } from "@/lib/usage";
 
 export const runtime = "nodejs";
 
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
         error:
           gate.reason === "has_in_progress"
             ? "You already have an interview in progress."
-            : "You've used your free interview. Upgrade to PrepNexa Pro to keep practicing.",
+            : "You've used all 3 free mock interviews. Upgrade your plan to continue practicing.",
       },
       { status: 403 },
     );
@@ -73,11 +73,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    try {
-      await consumeFreeInterview(user.id);
-    } catch {
-      // Never block interview start on quota bookkeeping.
-    }
+    // Free credit is consumed on COMPLETION (respond/results path), never on
+    // start, so a failed/interrupted interview does not burn a free credit.
 
     return NextResponse.json({ interviewId }, { status: 201 });
   } catch (error) {

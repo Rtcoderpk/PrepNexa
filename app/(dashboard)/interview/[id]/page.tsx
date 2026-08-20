@@ -32,8 +32,19 @@ export default async function InterviewPage({
     notFound();
   }
 
+  // Redirect to results only when the interview is completed AND a feedback
+  // report actually exists. A hard-cap completion (5 questions answered) marks
+  // the interview completed before the user clicks "Finish Interview" — we must
+  // not bounce them off to an empty report on refresh.
   if (interview.status === "completed") {
-    redirect(`/interview/${id}/results`);
+    const { data: report } = await supabase
+      .from("feedback_reports")
+      .select("id")
+      .eq("interview_id", id)
+      .maybeSingle();
+    if (report) {
+      redirect(`/interview/${id}/results`);
+    }
   }
 
   // Load existing questions (in case of refresh)
@@ -53,6 +64,13 @@ export default async function InterviewPage({
       created_at: q.created_at,
     })) ?? [];
 
+  // The interview is already complete (5 MAIN questions answered) but feedback
+  // has not been generated yet — show the chat in the "ended" state so the user
+  // can press Finish Interview instead of re-answering. Follow-ups don't count.
+  const mainCount = existingQuestions.filter((q) => !q.is_follow_up).length;
+  const alreadyEnded =
+    interview.status === "completed" && mainCount >= getMaxQuestions();
+
   return (
     <InterviewChat
       info={{
@@ -61,6 +79,7 @@ export default async function InterviewPage({
       }}
       initialQuestions={existingQuestions}
       maxQuestions={getMaxQuestions()}
+      initiallyEnded={alreadyEnded}
     />
   );
 }

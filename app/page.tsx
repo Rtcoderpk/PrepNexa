@@ -95,7 +95,7 @@ export default function LandingPage() {
           <section className="flex flex-col items-center py-20 text-center sm:py-28">
             <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/50 px-4 py-1.5 text-xs font-medium backdrop-blur">
               <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-              1 Free AI Interview + 3 Free Resume Checks
+              3 Free AI Interviews + 3 Free Resume Checks
             </span>
             <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight sm:text-6xl">
               AI Mock Interviews &{" "}
@@ -212,7 +212,7 @@ export default function LandingPage() {
                     </li>
                     <li className="flex items-center gap-2">
                       <Brain className="h-4 w-4 text-primary" />
-                      1 complete AI mock interview
+                      3 complete AI mock interviews
                     </li>
                     <li className="flex items-center gap-2">
                       <BadgeCheck className="h-4 w-4 text-primary" />
@@ -262,7 +262,7 @@ export default function LandingPage() {
               {[
                 {
                   q: "Is PrepNexa really free?",
-                  a: "Yes — every new account gets 1 complete AI mock interview and 3 free ATS resume checks, with no credit card.",
+                  a: "Yes — every new account gets 3 complete AI mock interviews and 3 free ATS resume checks, with no credit card.",
                 },
                 {
                   q: "Do I need a powerful computer or GPU?",
@@ -278,7 +278,7 @@ export default function LandingPage() {
                 },
                 {
                   q: "How does the free interview compare to Pro?",
-                  a: "The free interview is a complete, genuinely useful mock interview. Pro unlocks more interviews, advanced feedback, and the full resume suite.",
+                  a: "Each free mock interview is a complete, genuinely useful session. Pro unlocks more interviews, advanced feedback, and the full resume suite.",
                 },
               ].map((faq) => (
                 <details

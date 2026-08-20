@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { updatePasswordAction } from "@/actions/auth";
 import { Loader2, KeyRound } from "lucide-react";
@@ -17,6 +16,8 @@ export function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const [isPending, setIsPending] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
+  // Guard against React strict-mode double-invoking the code exchange.
+  const exchangingRef = useRef(false);
 
   const {
     register,
@@ -32,6 +33,8 @@ export function ResetPasswordForm() {
       router.replace("/forgot-password");
       return;
     }
+    if (exchangingRef.current) return;
+    exchangingRef.current = true;
 
     const supabase = createClient();
     supabase.auth

@@ -4,7 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { sanitizeAnswer } from "@/lib/security";
 import { respondInterviewSchema, respondTelemetrySchema } from "@/lib/validations";
-import { generateNextQuestion, isCompletionMessage } from "@/services/interview";
+import {
+  generateNextQuestion,
+  isCompletionMessage,
+  getMaxQuestions,
+  COMPLETION_PHRASE,
+} from "@/services/interview";
 import { persistAnswerTelemetry, clampSpeech, clampVision } from "@/services/telemetry";
 import { semanticEvaluator, toTenScale } from "@/services/semantic-eval";
 import {
@@ -12,6 +17,7 @@ import {
   isBudgetLimitError,
   AiResponseError,
 } from "@/lib/ai/friendly-errors";
+import { consumeFreeInterview } from "@/lib/usage";
 import type { ChatMessage, QuestionCategory } from "@/types/interview";
 
 export interface RespondResult {
@@ -119,9 +125,43 @@ export async function respondAction(params: {
     }
   }
 
+  // The authoritative question count comes from the DATABASE — never trust the
+  // client's previousMessages length alone (stale closures, refresh, or a racing
+  // second request could inflate it). Count only MAIN questions (follow-ups
+  // probe the same question and do not advance the interview).
+  const maxQuestions = getMaxQuestions();
+  const { count: dbQuestionCount } = await supabase
+    .from("interview_questions")
+    .select("id", { count: "exact", head: true })
+    .eq("interview_id", interview.id)
+    .eq("is_follow_up", false);
+
   const assistantCount = params.previousMessages.filter(
     (m) => m.role === "assistant",
   ).length;
+
+  // Hard cap: once the 5th question has been answered, do NOT call the AI to
+  // generate a 6th question. Transition straight to the completion state.
+  if ((dbQuestionCount ?? 0) >= maxQuestions) {
+    // Persist the completion status + consume the free credit (only for a
+    // genuinely completed interview, idempotently).
+    await supabase
+      .from("interviews")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", interview.id);
+    await consumeFreeInterview(user.id, interview.id).catch(() => {});
+
+    return {
+      message: COMPLETION_PHRASE,
+      category: "problem_solving" as QuestionCategory,
+      isFollowUp: false,
+      isComplete: true,
+      questionId: lastQuestion?.id ?? "",
+    };
+  }
 
   // Determine if the last exchange warrants a follow-up: Alex's prior
   // response was a question and the candidate's answer was short.
@@ -201,6 +241,8 @@ export async function respondAction(params: {
   }
 
   if (isComplete) {
+    // Mark complete first so consumeFreeInterview's idempotency check
+    // (status === "completed") sees a completed interview.
     await supabase
       .from("interviews")
       .update({
@@ -208,6 +250,7 @@ export async function respondAction(params: {
         completed_at: new Date().toISOString(),
       })
       .eq("id", interview.id);
+    await consumeFreeInterview(user.id, interview.id).catch(() => {});
   }
 
   return {

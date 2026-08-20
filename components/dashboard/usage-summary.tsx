@@ -53,9 +53,8 @@ export function UsageSummary({ usage }: { usage: UsageStatus }) {
                 Interview
               </p>
               <p className="mt-1 text-muted-foreground">
-                {usage.freeInterviewUsed
-                  ? "1 / 1 free interview used"
-                  : "0 / 1 free interview used"}
+                {usage.freeInterviewsUsed} / {usage.freeInterviewLimit} free
+                interviews used
               </p>
             </div>
             <div>
