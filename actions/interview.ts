@@ -21,7 +21,7 @@ export async function startInterviewAction(formData: FormData) {
     return { error: "Too many requests. Please try again later." };
   }
 
-  // Server-side usage enforcement: free users get exactly one interview.
+  // Server-side usage enforcement: free users get up to 3 complete interviews.
   const gate = await canUserStartInterview(user.id);
   if (!gate.allowed) {
     return {

@@ -51,23 +51,3 @@ export const PRO_MONTHLY_PRICE_PKR = PLANS.pro.priceMonthlyPkr;
 /** Highest reasonable AI-interview count before fair-use limits apply. */
 export const PRO_FAIR_USE_LIMIT = 30;
 
-/**
- * True when a user can start another AI interview. Premium is unlimited subject
- * to fair-use limits; free users get up to `freeInterviews` complete sessions.
- */
-export function canStartInterview(params: {
-  isPremium: boolean;
-  freeInterviewsUsed: number;
-  completedInterviews: number;
-}): { allowed: boolean; reason?: "free_interview_used" | "fair_use_limit" } {
-  if (params.isPremium) {
-    if (params.completedInterviews >= PRO_FAIR_USE_LIMIT) {
-      return { allowed: false, reason: "fair_use_limit" };
-    }
-    return { allowed: true };
-  }
-  if (params.freeInterviewsUsed >= PLANS.free.freeInterviews) {
-    return { allowed: false, reason: "free_interview_used" };
-  }
-  return { allowed: true };
-}

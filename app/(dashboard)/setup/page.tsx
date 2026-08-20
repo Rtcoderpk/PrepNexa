@@ -14,8 +14,8 @@ export default async function SetupPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Server-side paywall: a free user who already used their free interview
-  // cannot start another — surface an upgrade CTA instead of the form.
+  // Server-side paywall: surface the upgrade CTA instead of the form when a
+  // free user has used all their free interviews.
   let canStart = true;
   if (user) {
     try {
