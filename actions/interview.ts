@@ -25,7 +25,10 @@ export async function startInterviewAction(formData: FormData) {
   const gate = await canUserStartInterview(user.id);
   if (!gate.allowed) {
     return {
-      error: "You've used all 3 free mock interviews. Upgrade your plan to continue practicing.",
+      error: gate.reason === "has_in_progress"
+        ? "You already have an interview in progress. Resume it from your dashboard."
+        : "You've used all 3 free mock interviews. Upgrade your plan to continue practicing.",
+      interviewId: gate.interviewId,
     };
   }
 

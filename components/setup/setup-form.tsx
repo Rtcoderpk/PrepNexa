@@ -56,7 +56,11 @@ export function SetupForm() {
       const result = await startInterviewAction(formData);
 
       if (result?.error) {
-        toast.error(result.error);
+        if (result.interviewId) {
+          router.push(`/interview/${result.interviewId}`);
+        } else {
+          toast.error(result.error);
+        }
         return;
       }
 
