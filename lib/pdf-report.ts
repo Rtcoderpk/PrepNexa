@@ -100,7 +100,7 @@ export function buildReportHtml(data: ResultsData): string {
 </head>
 <body>
   <div class="header">
-    <div class="brand">Interview<span>IQ</span> AI</div>
+    <div class="brand">Prep<span>Nexa</span> AI</div>
     <div class="meta">Interview Report<br/>${date}</div>
   </div>
 

@@ -43,13 +43,13 @@ const nextConfig = {
             // and model assets from Google Storage.
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://storage.googleapis.com",
-              "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' blob: data: https://*.supabase.co",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com https://storage.googleapis.com",
+              "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com",
+              "img-src 'self' blob: data: https://*.supabase.co https://cdn.jsdelivr.net https://unpkg.com",
               "media-src 'self' blob:",
-              "connect-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://storage.googleapis.com",
+              "connect-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://unpkg.com https://storage.googleapis.com",
               "worker-src 'self' blob:",
-              "font-src 'self'",
+              "font-src 'self' https://cdn.jsdelivr.net https://unpkg.com",
             ].join("; "),
           },
         ],

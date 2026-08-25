@@ -19,6 +19,7 @@ import {
 } from "@/lib/ai/friendly-errors";
 import { consumeFreeInterview } from "@/lib/usage";
 import type { ChatMessage, QuestionCategory } from "@/types/interview";
+import { after } from "next/server";
 
 export interface RespondResult {
   message: string;
@@ -42,6 +43,12 @@ export async function respondAction(params: {
   speech?: unknown;
   vision?: unknown;
 }): Promise<RespondResult> {
+  const isDev = process.env.NODE_ENV === "development";
+  const startTime = Date.now();
+  if (isDev) {
+    console.log(`[DEBUG TIMING] respondAction: Request received at ${new Date().toISOString()}`);
+  }
+
   const supabase = await createClient();
 
   const {
@@ -49,6 +56,10 @@ export async function respondAction(params: {
   } = await supabase.auth.getUser();
   if (!user) {
     throw new Error("Unauthorized");
+  }
+
+  if (isDev) {
+    console.log(`[DEBUG TIMING] respondAction: Authenticated in ${Date.now() - startTime}ms`);
   }
 
   if (!(await rateLimitAsync(`respond:${user.id}`, 30))) {
@@ -71,11 +82,16 @@ export async function respondAction(params: {
     throw new Error("Invalid analysis payload");
   }
 
+  const dbFetchStart = Date.now();
   const { data: interview, error: interviewError } = await supabase
     .from("interviews")
     .select("id, user_id, job_role, job_description, resume_file_id, status")
     .eq("id", parsed.data.interviewId)
     .maybeSingle();
+
+  if (isDev) {
+    console.log(`[DEBUG TIMING] respondAction: Interview DB fetch in ${Date.now() - dbFetchStart}ms`);
+  }
 
   if (interviewError || !interview) {
     throw new Error("Interview not found");
@@ -92,15 +108,20 @@ export async function respondAction(params: {
   // Load resume context if present
   let resumeContext: string | undefined;
   if (interview.resume_file_id) {
+    const resumeLoadStart = Date.now();
     const { data: resumeFile } = await supabase
       .from("resume_files")
       .select("extracted_text")
       .eq("id", interview.resume_file_id)
       .maybeSingle();
     resumeContext = resumeFile?.extracted_text ?? undefined;
+    if (isDev) {
+      console.log(`[DEBUG TIMING] respondAction: Resume file context loaded in ${Date.now() - resumeLoadStart}ms`);
+    }
   }
 
   // Persist the user's answer against the last asked question
+  const lastQuestionStart = Date.now();
   const { data: lastQuestion } = await supabase
     .from("interview_questions")
     .select("id, question")
@@ -109,7 +130,12 @@ export async function respondAction(params: {
     .limit(1)
     .maybeSingle();
 
+  if (isDev) {
+    console.log(`[DEBUG TIMING] respondAction: Last question fetched in ${Date.now() - lastQuestionStart}ms`);
+  }
+
   if (lastQuestion) {
+    const saveAnswerStart = Date.now();
     await supabase
       .from("interview_questions")
       .update({ answer })
@@ -123,18 +149,26 @@ export async function respondAction(params: {
         vision: vision ? clampVision(vision) : undefined,
       });
     }
+    if (isDev) {
+      console.log(`[DEBUG TIMING] respondAction: Answer + telemetry saved in ${Date.now() - saveAnswerStart}ms`);
+    }
   }
 
   // The authoritative question count comes from the DATABASE — never trust the
   // client's previousMessages length alone (stale closures, refresh, or a racing
   // second request could inflate it). Count only MAIN questions (follow-ups
   // probe the same question and do not advance the interview).
+  const countStart = Date.now();
   const maxQuestions = getMaxQuestions();
   const { count: dbQuestionCount } = await supabase
     .from("interview_questions")
     .select("id", { count: "exact", head: true })
     .eq("interview_id", interview.id)
     .eq("is_follow_up", false);
+
+  if (isDev) {
+    console.log(`[DEBUG TIMING] respondAction: DB question count query in ${Date.now() - countStart}ms, count=${dbQuestionCount}`);
+  }
 
   const assistantCount = params.previousMessages.filter(
     (m) => m.role === "assistant",
@@ -143,6 +177,7 @@ export async function respondAction(params: {
   // Hard cap: once the 5th question has been answered, do NOT call the AI to
   // generate a 6th question. Transition straight to the completion state.
   if ((dbQuestionCount ?? 0) >= maxQuestions) {
+    const completeStart = Date.now();
     // Persist the completion status + consume the free credit (only for a
     // genuinely completed interview, idempotently).
     await supabase
@@ -153,6 +188,11 @@ export async function respondAction(params: {
       })
       .eq("id", interview.id);
     await consumeFreeInterview(user.id, interview.id).catch(() => {});
+
+    if (isDev) {
+      console.log(`[DEBUG TIMING] respondAction: Completed interview saved in ${Date.now() - completeStart}ms`);
+      console.log(`[DEBUG TIMING] respondAction: Total execution time ${Date.now() - startTime}ms`);
+    }
 
     return {
       message: COMPLETION_PHRASE,
@@ -182,35 +222,52 @@ export async function respondAction(params: {
     ? `respond:${interview.id}:${lastQuestion.id}`
     : `respond:${interview.id}:${user.id}`;
 
-  // Score the answer semantically in parallel with generating the next question.
-  // Never blocks or fails the main flow — on any error we simply skip scoring.
-  const semanticScorePromise = lastQuestion
-    ? scoreAnswerSemantically({
-        questionId: lastQuestion.id,
-        question: lastQuestion.question,
-        answer,
-        role: interview.job_role ?? undefined,
-        resumeContext,
-        userId: user.id,
-        dedupKey: respondDedupKey,
-      })
-    : Promise.resolve();
+  // Decoupled semantic scoring using next/server after() — runs in background, does not block response.
+  if (lastQuestion) {
+    after(async () => {
+      const scoreStart = Date.now();
+      if (isDev) {
+        console.log(`[DEBUG TIMING] [BACKGROUND] scoreAnswerSemantically: Started for questionId=${lastQuestion.id}`);
+      }
+      try {
+        await scoreAnswerSemantically({
+          questionId: lastQuestion.id,
+          question: lastQuestion.question,
+          answer,
+          role: interview.job_role ?? undefined,
+          resumeContext,
+          userId: user.id,
+          dedupKey: respondDedupKey,
+        });
+        if (isDev) {
+          console.log(`[DEBUG TIMING] [BACKGROUND] scoreAnswerSemantically: Completed in ${Date.now() - scoreStart}ms`);
+        }
+      } catch (err) {
+        if (isDev) {
+          console.error(`[DEBUG TIMING] [BACKGROUND] scoreAnswerSemantically: Failed:`, err);
+        }
+      }
+    });
+  }
 
   let generated: { content: string; category: QuestionCategory; isFollowUp: boolean };
+  const aiStart = Date.now();
+  if (isDev) {
+    console.log(`[DEBUG TIMING] respondAction: AI request started`);
+  }
   try {
-    const results = await Promise.all([
-      generateNextQuestion({
-        role: interview.job_role ?? undefined,
-        resumeContext,
-        history,
-        latestAnswer: answer,
-        isFollowUp,
-        userId: user.id,
-        dedupKey: respondDedupKey,
-      }),
-      semanticScorePromise,
-    ]);
-    generated = results[0];
+    generated = await generateNextQuestion({
+      role: interview.job_role ?? undefined,
+      resumeContext,
+      history,
+      latestAnswer: answer,
+      isFollowUp,
+      userId: user.id,
+      dedupKey: respondDedupKey,
+    });
+    if (isDev) {
+      console.log(`[DEBUG TIMING] respondAction: AI response received in ${Date.now() - aiStart}ms`);
+    }
   } catch (error) {
     // The answer + telemetry were already persisted above — the interview is
     // never destroyed by an AI failure. Surface a calm, friendly message and
@@ -224,6 +281,7 @@ export async function respondAction(params: {
   const isComplete = isCompletionMessage(generated.content);
 
   // Persist Alex's question
+  const insertStart = Date.now();
   const { data: questionRow, error: questionError } = await supabase
     .from("interview_questions")
     .insert({
@@ -236,6 +294,10 @@ export async function respondAction(params: {
     .select("id")
     .single();
 
+  if (isDev) {
+    console.log(`[DEBUG TIMING] respondAction: New question saved in ${Date.now() - insertStart}ms`);
+  }
+
   if (questionError || !questionRow) {
     throw new Error("Failed to save the question");
   }
@@ -243,6 +305,7 @@ export async function respondAction(params: {
   if (isComplete) {
     // Mark complete first so consumeFreeInterview's idempotency check
     // (status === "completed") sees a completed interview.
+    const completeStart = Date.now();
     await supabase
       .from("interviews")
       .update({
@@ -251,6 +314,13 @@ export async function respondAction(params: {
       })
       .eq("id", interview.id);
     await consumeFreeInterview(user.id, interview.id).catch(() => {});
+    if (isDev) {
+      console.log(`[DEBUG TIMING] respondAction: Completing interview saved in ${Date.now() - completeStart}ms`);
+    }
+  }
+
+  if (isDev) {
+    console.log(`[DEBUG TIMING] respondAction: Total execution time ${Date.now() - startTime}ms`);
   }
 
   return {
@@ -260,6 +330,56 @@ export async function respondAction(params: {
     isComplete,
     questionId: questionRow.id,
   };
+}
+
+export async function finishInterviewAction(interviewId: string) {
+  const isDev = process.env.NODE_ENV === "development";
+  const startTime = Date.now();
+  if (isDev) {
+    console.log(`[DEBUG TIMING] finishInterviewAction: Request received at ${new Date().toISOString()} for interviewId=${interviewId}`);
+  }
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error("Unauthorized");
+  }
+
+  const { data: interview, error: interviewError } = await supabase
+    .from("interviews")
+    .select("id, user_id, status")
+    .eq("id", interviewId)
+    .maybeSingle();
+
+  if (interviewError || !interview) {
+    throw new Error("Interview not found");
+  }
+  if (interview.user_id !== user.id) {
+    throw new Error("You do not have access to this interview");
+  }
+
+  if (interview.status !== "completed") {
+    await supabase
+      .from("interviews")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", interview.id);
+    await consumeFreeInterview(user.id, interview.id).catch(() => {});
+    if (isDev) {
+      console.log(`[DEBUG TIMING] finishInterviewAction: Interview status marked completed in DB`);
+    }
+  }
+
+  if (isDev) {
+    console.log(`[DEBUG TIMING] finishInterviewAction: Completed in ${Date.now() - startTime}ms`);
+  }
+
+  return { success: true };
 }
 
 function decideFollowUp(

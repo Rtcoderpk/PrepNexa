@@ -12,7 +12,7 @@ import { VisionIndicator } from "@/components/vision/vision-indicator";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { useVisionMetrics } from "@/hooks/use-vision-metrics";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
-import { respondAction } from "@/actions/respond";
+import { finishInterviewAction, respondAction } from "@/actions/respond";
 import { AiResponseError } from "@/lib/ai/friendly-errors";
 import { analyzeTranscriptMetrics } from "@/services/speech-metrics";
 import { Button } from "@/components/ui/button";
@@ -487,9 +487,18 @@ export function InterviewChat({
             variant="gradient"
             className="w-full"
             disabled={isGeneratingFeedback}
-            onClick={(e) => {
+            onClick={async (e) => {
               e.preventDefault();
               setIsGeneratingFeedback(true);
+              try {
+                await finishInterviewAction(info.id);
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not mark the interview as complete.",
+                );
+              }
               toast.success("Generating your feedback…");
               void generateFeedback();
             }}

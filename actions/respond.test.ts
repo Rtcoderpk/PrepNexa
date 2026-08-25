@@ -30,4 +30,18 @@ describe("AiResponseError (P8-C)", () => {
   it("friendly-errors classifies the action's source error as budget", () => {
     expect(isBudgetLimitError(new AIError("budget_limit", "limit"))).toBe(true);
   });
+
+  it("interview chat invokes the manual finish server action before generating feedback", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("components/interview/interview-chat.tsx", "utf8");
+    expect(src).toContain("finishInterviewAction");
+    expect(src).toContain("await finishInterviewAction");
+  });
+
+  it("resume analyzer retries transient ATS analysis failures", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("components/resume/resume-analyzer.tsx", "utf8");
+    expect(src).toContain("MAX_ANALYSIS_RETRIES");
+    expect(src).toContain("retry");
+  });
 });

@@ -37,7 +37,7 @@ export function AuthShell({
               <Sparkles className="h-5 w-5" />
             </span>
             <span>
-              Interview<span className="text-gradient">IQ</span>
+              Prep<span className="text-gradient">Nexa</span>
             </span>
           </Link>
           <h1 className="text-2xl font-bold tracking-tight">{title}</h1>

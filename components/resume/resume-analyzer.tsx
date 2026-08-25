@@ -64,6 +64,20 @@ const STAGES = [
   "Generating improvements",
 ];
 
+const MAX_ANALYSIS_RETRIES = 2;
+
+function isTransientAnalysisError(message: string): boolean {
+  const cleaned = message.toLowerCase();
+  return (
+    cleaned.includes("temporarily") ||
+    cleaned.includes("try again in a moment") ||
+    cleaned.includes("no ai provider") ||
+    cleaned.includes("rate limit") ||
+    cleaned.includes("overloaded") ||
+    cleaned.includes("unavailable")
+  );
+}
+
 function ScoreRing({ score, label }: { score: number; label: string }) {
   const color =
     score >= 75
@@ -126,12 +140,15 @@ export function ResumeAnalyzer({
   const [stageIndex, setStageIndex] = useState(0);
   const [report, setReport] = useState<ResumeAnalysisReport | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const runAnalysis = useCallback(
     async (file: File) => {
       setIsAnalyzing(true);
       setReport(null);
+      setError(null);
       setStageIndex(0);
 
       const timer = setInterval(() => {
@@ -139,38 +156,72 @@ export function ResumeAnalyzer({
       }, 1200);
 
       try {
-        const formData = new FormData();
-        formData.set("file", file);
-        const response = await fetch("/api/resume/analyze-upload", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await response.json();
+        let lastError: string | null = null;
 
-        if (!response.ok) {
-          if (data.limitReached) {
-            toast.error(
-              "You've used all your free resume checks. Upgrade to continue.",
-            );
+        for (let attempt = 0; attempt <= MAX_ANALYSIS_RETRIES; attempt++) {
+          try {
+            const formData = new FormData();
+            formData.set("file", file);
+            const response = await fetch("/api/resume/analyze-upload", {
+              method: "POST",
+              body: formData,
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+              if (data.limitReached) {
+                setError("You've used all your free resume checks. Upgrade to continue.");
+                toast.error(
+                  "You've used all your free resume checks. Upgrade to continue.",
+                );
+                return;
+              }
+              if (data.budgetLimit) {
+                setError("You've reached your AI usage limit for now. Please try again later.");
+                toast.error(
+                  "You've reached your AI usage limit for now. Please try again later.",
+                );
+                return;
+              }
+
+              const msg = data.error ?? "Analysis failed";
+              lastError = msg;
+              const shouldRetry = isTransientAnalysisError(msg) && attempt < MAX_ANALYSIS_RETRIES;
+              if (shouldRetry) {
+                toast.warning(`AI is temporarily busy. Retrying analysis (${attempt + 2}/${MAX_ANALYSIS_RETRIES + 1})…`);
+                await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+                continue;
+              }
+              throw new Error(msg);
+            }
+
+            setReport(data);
             return;
+          } catch (error) {
+            const msg =
+              error instanceof Error ? error.message : "Analysis failed";
+            lastError = msg;
+            const shouldRetry =
+              (isTransientAnalysisError(msg) || msg === "Failed to fetch") &&
+              attempt < MAX_ANALYSIS_RETRIES;
+            if (shouldRetry) {
+              toast.warning(`AI is temporarily busy. Retrying analysis (${attempt + 2}/${MAX_ANALYSIS_RETRIES + 1})…`);
+              await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+              continue;
+            }
+            throw new Error(msg);
           }
-          if (data.budgetLimit) {
-            toast.error(
-              "You've reached your AI usage limit for now. Please try again later.",
-            );
-            return;
-          }
-          throw new Error(data.error ?? "Analysis failed");
         }
 
-        setReport(data);
+        throw new Error(lastError ?? "Analysis failed");
       } catch (error) {
         const msg = error instanceof Error ? error.message : "";
-        toast.error(
-          msg.includes("temporarily") || msg === ""
+        const friendly =
+          msg && isTransientAnalysisError(msg)
             ? "AI is temporarily busy. Please try again in a moment."
-            : msg,
-        );
+            : msg || "Analysis failed";
+        setError(friendly);
+        toast.error(friendly);
       } finally {
         clearInterval(timer);
         setIsAnalyzing(false);
@@ -190,6 +241,7 @@ export function ResumeAnalyzer({
         return;
       }
       setFileName(file.name);
+      setSelectedFile(file);
       try {
         toast.success("Resume extracted. Starting analysis…");
         await runAnalysis(file);
@@ -214,6 +266,25 @@ export function ResumeAnalyzer({
       {!report && (
         <Card className="glass">
           <CardContent className="space-y-5 pt-6">
+            {error && (
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4 text-sm text-rose-700">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span>{error}</span>
+                  </div>
+                  {selectedFile && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void runAnalysis(selectedFile)}
+                    >
+                      Retry
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
             {requiresAuth && !limitReached ? (
               <div className="flex flex-col items-center gap-4 py-8 text-center">
                 <FileText className="h-10 w-10 text-primary" />
