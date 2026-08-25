@@ -42,6 +42,7 @@ describe("AiResponseError (P8-C)", () => {
     const fs = await import("node:fs");
     const src = fs.readFileSync("components/resume/resume-analyzer.tsx", "utf8");
     expect(src).toContain("MAX_ANALYSIS_RETRIES");
-    expect(src).toContain("retry");
+    expect(src).toContain("shouldRetry");
+    expect(src).toContain("Retrying analysis");
   });
 });
