@@ -106,16 +106,20 @@ export async function generateAIResponse(
     let attempts = 0;
     const attemptedProviders: string[] = [];
 
-    // Attempt each (model) in order; for each, try every capable provider.
+    // Attempt each (model) in order; for each, try only its matching provider.
     for (const model of models) {
       const capable = providers.filter((p) =>
-        p.supports(task, capabilities),
+        p.id === model.provider && p.supports(task, capabilities),
       );
       for (const provider of capable) {
         const started = Date.now();
         try {
           const result = await withRetry(
             async () => {
+              // model.timeoutMs (per-task-per-fallback cap) takes precedence
+              // over the caller's timeoutMs when set, preventing slow fallback
+              // providers from stalling latency-sensitive flows.
+              const effectiveTimeout = model.timeoutMs ?? options.timeoutMs;
               const chatResult = provider.chatWithUsage
                 ? await provider.chatWithUsage({
                     ...options,
@@ -123,6 +127,7 @@ export async function generateAIResponse(
                     providerId: provider.id,
                     model: model.model,
                     maxOutputTokens: options.maxOutputTokens ?? model.maxTokens,
+                    timeoutMs: effectiveTimeout,
                   })
                 : { content: await provider.chat({
                     ...options,
@@ -130,6 +135,7 @@ export async function generateAIResponse(
                     providerId: provider.id,
                     model: model.model,
                     maxOutputTokens: options.maxOutputTokens ?? model.maxTokens,
+                    timeoutMs: effectiveTimeout,
                   }), usage: null };
               return chatResult;
             },
@@ -276,15 +282,19 @@ export async function generateAIStream(
     throw new AIError("config", "No AI provider is currently available. Please try again in a moment.");
   }
 
+  const models = resolveModel(task);
   for (const provider of providers) {
     if (!provider.stream) continue;
+    const model = models.find((m) => m.provider === provider.id);
+    if (!model) continue;
     try {
-      const model = resolveModel(task)[0];
+      const effectiveTimeout = model.timeoutMs ?? options.timeoutMs;
       const stream = provider.stream({
         ...options,
         task,
         providerId: provider.id,
         model: model.model,
+        timeoutMs: effectiveTimeout,
       });
       recordRequest(task);
       // Wrap so budget/dedup are released when the stream errors or is

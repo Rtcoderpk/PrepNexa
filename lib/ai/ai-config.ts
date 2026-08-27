@@ -26,6 +26,9 @@ export interface ModelConfig {
   model: string;
   /** Approximate output-token ceiling used for maxOutputTokens defaults. */
   maxTokens: number;
+  /** Per-model timeout override (ms). Used by the router to cap latency for
+   *  latency-sensitive tasks when falling back to slower providers. */
+  timeoutMs?: number;
 }
 
 export interface TaskConfig {
@@ -63,8 +66,8 @@ export function getProviders(): ProviderConfig[] {
 }
 
 const GROQ_MODELS = {
-  fast: { provider: "groq" as ProviderId, model: "llama-3.3-70b-versatile", maxTokens: 4096 },
-  feedback: { provider: "groq" as ProviderId, model: "llama-3.3-70b-versatile", maxTokens: 8192 },
+  fast: { provider: "groq" as ProviderId, model: "groq/compound-mini", maxTokens: 4096 },
+  feedback: { provider: "groq" as ProviderId, model: "groq/compound", maxTokens: 8192 },
 };
 
 const GEMINI_MODELS = {
@@ -96,7 +99,13 @@ export function getTaskConfig(task: AITask): TaskConfig {
     case "semantic_scoring":
       return {
         primary: GROQ_MODELS.fast,
-        fallbacks: [GEMINI_MODELS.flash, CLOUDFLARE_MODEL, OPENROUTER_MODEL],
+        fallbacks: [
+          // Cap Gemini at 30 s for latency-sensitive interview requests so a
+          // slow fallback doesn't cause a 90 s stall for the candidate.
+          { ...GEMINI_MODELS.flash, timeoutMs: 30_000 },
+          CLOUDFLARE_MODEL,
+          OPENROUTER_MODEL,
+        ],
         required: {},
         compact: GROQ_MODELS.fast,
       };

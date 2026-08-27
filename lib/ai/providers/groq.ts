@@ -37,7 +37,7 @@ export class GroqProvider implements AIProvider {
       },
       signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
       body: JSON.stringify({
-        model: options.model ?? "llama-3.3-70b-versatile",
+        model: options.model ?? "groq/compound-mini",
         messages: [
           ...(options.system ? [{ role: "system", content: options.system }] : []),
           ...options.messages,
@@ -81,7 +81,7 @@ export class GroqProvider implements AIProvider {
       },
       signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
       body: JSON.stringify({
-        model: options.model ?? "llama-3.3-70b-versatile",
+        model: options.model ?? "groq/compound-mini",
         messages: [
           ...(options.system ? [{ role: "system", content: options.system }] : []),
           ...options.messages,
