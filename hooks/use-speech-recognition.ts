@@ -38,18 +38,29 @@ export function useSpeechRecognition() {
   const [error, setError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const transcriptRef = useRef("");
+  const shouldBeListeningRef = useRef(false);
+  const hasFatalErrorRef = useRef(false);
+  const onFinalTranscriptRef = useRef<(text: string) => void>(() => {});
+
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
 
   useEffect(() => {
     setIsSupported(getSpeechRecognition() !== null);
   }, []);
 
   const stop = useCallback(() => {
+    shouldBeListeningRef.current = false;
     recognitionRef.current?.stop();
     setIsListening(false);
   }, []);
 
   const start = useCallback(
     (onFinalTranscript: (text: string) => void) => {
+      onFinalTranscriptRef.current = onFinalTranscript;
+
       const Ctor = getSpeechRecognition();
       if (!Ctor) {
         setError("Speech recognition is not supported in this browser.");
@@ -57,6 +68,9 @@ export function useSpeechRecognition() {
       }
 
       stop();
+
+      hasFatalErrorRef.current = false;
+      shouldBeListeningRef.current = true;
 
       const recognition = new Ctor();
       recognition.lang = "en-US";
@@ -79,22 +93,50 @@ export function useSpeechRecognition() {
       };
 
       recognition.onend = () => {
-        setIsListening(false);
-        const text = (finalText || transcript).trim();
+        const text = (finalText || transcriptRef.current).trim();
         if (text) {
-          onFinalTranscript(text);
+          onFinalTranscriptRef.current(text);
+          finalText = "";
+          setTranscript("");
+          transcriptRef.current = "";
         }
+
+        if (shouldBeListeningRef.current && !hasFatalErrorRef.current) {
+          try {
+            recognition.start();
+            return;
+          } catch (e) {
+            console.error("Failed to auto-restart speech recognition:", e);
+          }
+        }
+        setIsListening(false);
       };
 
       recognition.onerror = (event) => {
-        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        const err = event.error;
+        if (err === "not-allowed" || err === "service-not-allowed") {
           setError("Microphone access was denied. Please allow it in your browser.");
-        } else if (event.error === "no-speech") {
+          hasFatalErrorRef.current = true;
+        } else if (err === "audio-capture") {
+          setError("No microphone was found. Please ensure it is plugged in.");
+          hasFatalErrorRef.current = true;
+        } else if (err === "language-not-supported") {
+          setError("The selected language is not supported by your browser.");
+          hasFatalErrorRef.current = true;
+        } else if (err === "network") {
+          setError("Network error occurred. Please check your connection.");
+          hasFatalErrorRef.current = true;
+        } else if (err === "no-speech") {
           // no-op, user can retry
+        } else if (err === "aborted") {
+          // no-op, user stopped it
         } else {
-          setError("Speech recognition error. Please try again.");
+          setError(`Speech recognition error (${err}). Please try again.`);
         }
-        setIsListening(false);
+
+        if (hasFatalErrorRef.current) {
+          shouldBeListeningRef.current = false;
+        }
       };
 
       recognitionRef.current = recognition;
@@ -103,7 +145,7 @@ export function useSpeechRecognition() {
       setIsListening(true);
       recognition.start();
     },
-    [stop, transcript],
+    [stop],
   );
 
   const toggle = useCallback(

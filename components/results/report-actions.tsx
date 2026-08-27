@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Download, Share2, Link as LinkIcon, Check, Printer } from "lucide-react";
 import type { ResultsData } from "@/lib/results";
@@ -9,6 +10,11 @@ import { Button } from "@/components/ui/button";
 
 export function ReportActions({ data }: { data: ResultsData }) {
   const [copied, setCopied] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    router.refresh();
+  }, [router]);
 
   const handleDownload = () => {
     try {

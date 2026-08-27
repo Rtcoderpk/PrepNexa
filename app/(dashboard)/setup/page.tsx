@@ -8,6 +8,8 @@ export const metadata: Metadata = {
   title: "Setup Interview",
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function SetupPage() {
   const supabase = await createClient();
   const {

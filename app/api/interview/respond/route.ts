@@ -18,6 +18,7 @@ import { aiErrorPayload } from "@/lib/ai/friendly-errors";
 import { consumeFreeInterview } from "@/lib/usage";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const isDev = process.env.NODE_ENV === "development";

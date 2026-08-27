@@ -7,6 +7,7 @@ import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
 import { getUsageStatus } from "@/lib/usage";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const requestSchema = z.object({
   resumeText: z.string().trim().min(50).max(15000),

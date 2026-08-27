@@ -64,6 +64,7 @@ const STAGES = [
   "Generating improvements",
 ];
 
+// retry logic for transient failures
 const MAX_ANALYSIS_RETRIES = 2;
 
 function isTransientAnalysisError(message: string): boolean {

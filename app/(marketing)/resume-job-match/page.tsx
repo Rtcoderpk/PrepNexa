@@ -3,6 +3,8 @@ import { JobMatchAnalyzer } from "@/components/resume/job-match-analyzer";
 import { CTA } from "@/components/marketing/cta";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Resume Job Description Matcher — Match Your CV to a Job",
   description:

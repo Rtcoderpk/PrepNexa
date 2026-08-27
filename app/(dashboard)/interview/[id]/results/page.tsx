@@ -18,6 +18,8 @@ export const metadata: Metadata = {
   title: "Interview Results",
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function ResultsPage({
   params,
 }: {
@@ -46,6 +48,10 @@ export default async function ResultsPage({
   }
 
   const { interview } = data;
+
+  if (interview.status !== "completed" || interview.overall_score === null) {
+    redirect(`/interview/${id}`);
+  }
 
   return (
     <div className="space-y-8">

@@ -13,6 +13,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   category?: QuestionCategory;
+  isFollowUp?: boolean;
 }
 
 export interface InterviewSetup {

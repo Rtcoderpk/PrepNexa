@@ -47,6 +47,7 @@ export function ChatInput({
       speech.stop();
     } else {
       speech.start((finalText) => {
+        if (disabled) return;
         setValue((prev) =>
           prev ? `${prev.trim()} ${finalText}` : finalText,
         );
@@ -60,6 +61,13 @@ export function ChatInput({
       setValue(speech.transcript);
     }
   }, [speech.isListening, speech.transcript]);
+
+  // Stop listening if the input becomes disabled
+  useEffect(() => {
+    if (disabled && speech.isListening) {
+      speech.stop();
+    }
+  }, [disabled, speech.isListening, speech]);
 
   // Auto-resize the textarea
   useEffect(() => {
@@ -100,6 +108,7 @@ export function ChatInput({
             size="icon"
             variant={speech.isListening ? "destructive" : "outline"}
             onClick={handleMicToggle}
+            disabled={disabled}
             className="shrink-0"
             aria-label={
               speech.isListening ? "Stop recording" : "Start recording"

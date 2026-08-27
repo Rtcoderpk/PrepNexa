@@ -6,6 +6,8 @@ import { AdSlot } from "@/components/ads/ad-slot";
 import { PLANS } from "@/lib/pricing";
 import { CTA } from "@/components/marketing/cta";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Free ATS Resume Checker — Check Resume Compatibility with ATS",
   description:

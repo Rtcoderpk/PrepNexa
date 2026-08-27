@@ -9,6 +9,8 @@ import { CheckoutButton } from "@/components/payments/checkout-button";
 import { createClient } from "@/lib/supabase/server";
 import { getUsageStatus } from "@/lib/usage";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Pricing — PrepNexa Pro (PKR 499/month) or Free",
   description:

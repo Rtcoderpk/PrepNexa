@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { Sparkles, LogOut } from "lucide-react";
+import { Sparkles, LogOut, AlertTriangle } from "lucide-react";
 import type { ChatMessage, QuestionCategory } from "@/types/interview";
 import { MessageBubble } from "@/components/interview/message-bubble";
 import { ChatInput } from "@/components/interview/chat-input";
@@ -12,12 +12,22 @@ import { VisionIndicator } from "@/components/vision/vision-indicator";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
 import { useVisionMetrics } from "@/hooks/use-vision-metrics";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
-import { finishInterviewAction, respondAction } from "@/actions/respond";
+import { finishInterviewAction, respondAction, saveTelemetryAction } from "@/actions/respond";
 import { AiResponseError } from "@/lib/ai/friendly-errors";
 import { analyzeTranscriptMetrics } from "@/services/speech-metrics";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import type { SpeechMetricsData, VisionMetricsData } from "@/lib/validations";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 interface ExistingQuestion {
   id: string;
@@ -85,6 +95,7 @@ export function InterviewChat({
         content: q.question,
         timestamp: new Date(q.created_at),
         category: q.category as QuestionCategory,
+        isFollowUp: q.is_follow_up,
       });
       if (q.answer) {
         hydrated.push({
@@ -154,6 +165,7 @@ export function InterviewChat({
             content: data.message,
             timestamp: new Date(),
             category: data.category as QuestionCategory,
+            isFollowUp: false,
           },
         ]);
       } catch (error) {
@@ -284,6 +296,7 @@ export function InterviewChat({
       if (data.queued && data.jobId) {
         await waitForQueuedFeedback(data.jobId);
       }
+      router.refresh();
       router.push(`/interview/${info.id}/results`);
     } catch (error) {
       toast.error(
@@ -308,6 +321,12 @@ export function InterviewChat({
       const finish = () => {
         submitInFlightRef.current = false;
       };
+
+      // Get the last assistant message ID (which is the database ID of the question currently being answered)
+      const lastAssistantMsg = [...messages].reverse().find(m => m.role === "assistant");
+      const answeredQuestionDbId = lastAssistantMsg?.id.startsWith("q-")
+        ? lastAssistantMsg.id.replace("q-", "")
+        : undefined;
 
       // Start sampling metrics for the answer about to be recorded.
       vision.beginWindow();
@@ -336,18 +355,63 @@ export function InterviewChat({
           isFollowUp: false,
         }));
 
-        // Stop recording and collect telemetry (transcription + vision).
-        const { speech, vision: visionData } = await collectAnswerTelemetry();
+        // Stop recording and end the vision sampling window locally
+        const recording = await audioRecorder.stop().catch(() => null);
+        const visionMetrics = vision.endWindow();
+        const visionData = toVisionData(visionMetrics);
 
+        // Fire the server action immediately with NO blocking telemetry
         const result = await respondAction({
           interviewId: info.id,
           answer: text,
           previousMessages: prevMessages,
-          speech: speech ?? buildLocalSpeech(text),
-          vision: visionData,
         });
 
         const isComplete = result.message.trim() === COMPLETION_PHRASE;
+
+        // Kick off transcription and telemetry updates in the background (fire-and-forget)
+        const answeredQId = result.answeredQuestionId || answeredQuestionDbId;
+        if (answeredQId) {
+          void (async () => {
+            try {
+              let speechData: SpeechMetricsData | undefined;
+              if (recording && recording.durationSec > 0.4) {
+                try {
+                  const form = new FormData();
+                  form.append("audio", recording.blob, "answer.wav");
+                  const response = await fetch("/api/analysis/transcribe", {
+                    method: "POST",
+                    body: form,
+                  });
+                  const data = await response.json();
+                  if (response.ok && data.transcript) {
+                    speechData = {
+                      transcript: data.transcript,
+                      audioDurationSec: data.durationSec ?? recording.durationSec,
+                      wordsPerMinute: data.wordsPerMinute,
+                      pauseCount: data.pauseCount,
+                      avgPauseSec: data.avgPauseSec,
+                      fillerWordCount: data.fillerWordCount,
+                      fillerDensity: data.fillerDensity,
+                      fluencyScore: data.fluencyScore,
+                      transcriptionSource: "faster_whisper",
+                    };
+                  }
+                } catch {
+                  // pythonai unavailable — fall through to local metrics.
+                }
+              }
+              const speech = speechData ?? buildLocalSpeech(text);
+              await saveTelemetryAction({
+                questionId: answeredQId,
+                speech,
+                vision: visionData,
+              });
+            } catch (err) {
+              console.error("Background telemetry update failed:", err);
+            }
+          })();
+        }
 
         setMessages((prev) => [
           ...prev,
@@ -359,6 +423,7 @@ export function InterviewChat({
             category: result.isFollowUp
               ? undefined
               : (result.category as QuestionCategory),
+            isFollowUp: result.isFollowUp,
           },
         ]);
         setIsThinking(false);
@@ -395,7 +460,7 @@ export function InterviewChat({
         }
       }
     },
-    [info.id, isEnded, isThinking, isGeneratingFeedback, messages, vision, audioRecorder, collectAnswerTelemetry, buildLocalSpeech],
+    [info.id, isEnded, isThinking, isGeneratingFeedback, messages, vision, audioRecorder, buildLocalSpeech],
   );
 
   const handleCameraToggle = useCallback(() => {
@@ -407,7 +472,7 @@ export function InterviewChat({
   }, [vision]);
 
   const roleLabel = info.jobRole || "your interview";
-  const assistantCount = messages.filter((m) => m.role === "assistant").length;
+  const assistantCount = messages.filter((m) => m.role === "assistant" && !m.isFollowUp).length;
   const progress = Math.min(100, (assistantCount / maxQuestions) * 100);
 
   return (
@@ -430,6 +495,51 @@ export function InterviewChat({
             {assistantCount} / {maxQuestions} questions
           </span>
           <VisionIndicator vision={vision.state} onToggle={handleCameraToggle} />
+          {!isEnded && (
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Finish Interview
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Finish Interview Early?</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to end the interview now? We will generate feedback and score your interview based on the questions you have answered so far.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter className="gap-2 sm:gap-0">
+                  <DialogClose asChild>
+                    <Button variant="ghost">Cancel</Button>
+                  </DialogClose>
+                  <Button
+                    variant="gradient"
+                    onClick={async () => {
+                      setIsGeneratingFeedback(true);
+                      try {
+                        await finishInterviewAction(info.id);
+                      } catch (error) {
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not mark the interview as complete.",
+                        );
+                      }
+                      toast.success("Generating your feedback…");
+                      void generateFeedback();
+                    }}
+                  >
+                    Yes, Finish & View Results
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
           <Button
             variant="ghost"
             size="sm"

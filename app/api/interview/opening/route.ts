@@ -6,6 +6,7 @@ import { aiErrorPayload } from "@/lib/ai/friendly-errors";
 import { z } from "zod";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const requestSchema = z.object({
   interviewId: z.string().uuid("Invalid interview"),

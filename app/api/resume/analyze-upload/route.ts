@@ -8,6 +8,7 @@ import { PRO_FAIR_USE_LIMIT } from "@/lib/pricing";
 import { friendlyAIErrorMessage } from "@/lib/ai/friendly-errors";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 /**
  * Server-side resume upload + analysis. Parses the PDF (server-side, where
