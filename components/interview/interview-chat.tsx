@@ -14,6 +14,7 @@ import { useVisionMetrics } from "@/hooks/use-vision-metrics";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { finishInterviewAction, respondAction, saveTelemetryAction } from "@/actions/respond";
 import { AiResponseError } from "@/lib/ai/friendly-errors";
+import { safeReadJson } from "@/lib/api-json";
 import { analyzeTranscriptMetrics } from "@/services/speech-metrics";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -152,17 +153,23 @@ export function InterviewChat({
           body: JSON.stringify({ interviewId: info.id }),
         });
 
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error ?? "Failed to start the interview");
+        const parsed = await safeReadJson<{
+          questionId?: string;
+          message?: string;
+          category?: string;
+          error?: string;
+        }>(response);
+        if (!parsed.ok || !parsed.data || !parsed.data.message) {
+          throw new Error(parsed.error ?? "Failed to start the interview");
         }
 
+        const data = parsed.data;
         setMessages((prev) => [
           ...prev,
           {
             id: `q-${data.questionId}`,
             role: "assistant",
-            content: data.message,
+            content: data.message!,
             timestamp: new Date(),
             category: data.category as QuestionCategory,
             isFollowUp: false,
@@ -281,19 +288,27 @@ export function InterviewChat({
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok) {
-        if (data.budgetLimit) {
+      const parsed = await safeReadJson<{
+        feedback?: unknown;
+        queued?: boolean;
+        jobId?: string;
+        error?: string;
+        budgetLimit?: boolean;
+      }>(response);
+
+      if (!parsed.ok) {
+        if (parsed.data?.budgetLimit) {
           throw new AiResponseError(
             "You've reached your AI usage limit for now. Please try again later.",
             true,
           );
         }
-        throw new Error(data.error ?? "Failed to generate feedback");
+        throw new Error(parsed.error ?? "Failed to generate feedback");
       }
 
+      const data = parsed.data;
       // Queued path: report completes on the worker — poll then redirect.
-      if (data.queued && data.jobId) {
+      if (data?.queued && data.jobId) {
         await waitForQueuedFeedback(data.jobId);
       }
       router.refresh();
@@ -302,9 +317,7 @@ export function InterviewChat({
       toast.error(
         error instanceof AiResponseError
           ? error.message
-          : error instanceof Error
-            ? error.message
-            : "Failed to generate feedback. Please refresh the results page.",
+          : "We couldn't generate your results. Please refresh the results page.",
       );
       router.push(`/interview/${info.id}/results`);
     } finally {

@@ -24,6 +24,17 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Whole-handler guard: ANY unexpected throw (Supabase client init, body
+  // parse, auth, DB) must still return valid JSON — never an HTML error page
+  // that breaks the client's response.json().
+  try {
+    return await handlePost(request);
+  } catch (error) {
+    return NextResponse.json(aiErrorPayload(error), { status: 500 });
+  }
+}
+
+async function handlePost(request: NextRequest) {
   const supabase = await createClient();
 
   const {

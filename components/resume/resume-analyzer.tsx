@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { safeReadJson } from "@/lib/api-json";
 import {
   FileUp,
   FileText,
@@ -167,17 +168,23 @@ export function ResumeAnalyzer({
               method: "POST",
               body: formData,
             });
-            const data = await response.json();
+            const parsed = await safeReadJson<{
+              ats_score?: number;
+              error?: string;
+              limitReached?: boolean;
+              budgetLimit?: boolean;
+            }>(response);
 
-            if (!response.ok) {
-              if (data.limitReached) {
+            if (!parsed.ok) {
+              const data = parsed.data;
+              if (data?.limitReached) {
                 setError("You've used all your free resume checks. Upgrade to continue.");
                 toast.error(
                   "You've used all your free resume checks. Upgrade to continue.",
                 );
                 return;
               }
-              if (data.budgetLimit) {
+              if (data?.budgetLimit) {
                 setError("You've reached your AI usage limit for now. Please try again later.");
                 toast.error(
                   "You've reached your AI usage limit for now. Please try again later.",
@@ -185,7 +192,7 @@ export function ResumeAnalyzer({
                 return;
               }
 
-              const msg = data.error ?? "Analysis failed";
+              const msg = parsed.error ?? "Analysis failed";
               lastError = msg;
               const shouldRetry = isTransientAnalysisError(msg) && attempt < MAX_ANALYSIS_RETRIES;
               if (shouldRetry) {
@@ -196,7 +203,7 @@ export function ResumeAnalyzer({
               throw new Error(msg);
             }
 
-            setReport(data);
+            setReport(parsed.data as never);
             return;
           } catch (error) {
             const msg =

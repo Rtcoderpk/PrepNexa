@@ -21,6 +21,15 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
+  // Whole-handler guard: ANY unexpected throw must still return JSON.
+  try {
+    return await handlePost(request);
+  } catch (error) {
+    return NextResponse.json(aiErrorPayload(error), { status: 500 });
+  }
+}
+
+async function handlePost(request: NextRequest) {
   const isDev = process.env.NODE_ENV === "development";
   const startTime = Date.now();
   if (isDev) {

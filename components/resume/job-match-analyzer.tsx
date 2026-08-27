@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { safeReadJson } from "@/lib/api-json";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -51,11 +52,13 @@ export function JobMatchAnalyzer() {
         method: "POST",
         body: formData,
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Could not read the PDF.");
+      const parsed = await safeReadJson<{ text?: string; error?: string }>(
+        response,
+      );
+      if (!parsed.ok || !parsed.data?.text) {
+        throw new Error(parsed.error ?? "Could not read the PDF.");
       }
-      setResumeText(data.text.slice(0, 15000));
+      setResumeText(parsed.data.text.slice(0, 15000));
       toast.success("Resume extracted.");
     } catch (error) {
       toast.error(
@@ -84,17 +87,19 @@ export function JobMatchAnalyzer() {
           jobDescription,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        if (data.budgetLimit) {
+      const parsed = await safeReadJson<{ budgetLimit?: boolean; error?: string }>(
+        response,
+      );
+      if (!parsed.ok) {
+        if (parsed.data?.budgetLimit) {
           toast.error(
             "You've reached your AI usage limit for now. Please try again later.",
           );
           return;
         }
-        throw new Error(data.error ?? "Match failed");
+        throw new Error(parsed.error ?? "Match failed");
       }
-      setReport(data);
+      setReport(parsed.data as JobMatchReport);
     } catch (error) {
       toast.error(
         error instanceof Error

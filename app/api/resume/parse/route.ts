@@ -11,6 +11,21 @@ export const runtime = "nodejs";
  * the extracted text.
  */
 export async function POST(request: NextRequest) {
+  // Whole-handler guard: ANY unexpected throw must still return valid JSON.
+  try {
+    return await handlePost(request);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Could not read the PDF.",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+async function handlePost(request: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },

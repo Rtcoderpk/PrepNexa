@@ -19,6 +19,21 @@ const requestSchema = z.object({
  * limited preview). Enforced server-side.
  */
 export async function POST(request: NextRequest) {
+  // Whole-handler guard: ANY unexpected throw must still return valid JSON.
+  try {
+    return await handlePost(request);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: friendlyAIErrorMessage(error),
+        budgetLimit: isAiBudgetLimitError(error),
+      },
+      { status: 500 },
+    );
+  }
+}
+
+async function handlePost(request: NextRequest) {
   const supabase = await createClient();
 
   const {

@@ -224,12 +224,15 @@ export async function analyzeResume(
 ): Promise<ResumeAnalysisResult> {
   const resume = normalizeResumeText(text);
   const provider = createLLMProvider();
+  const startedAt = Date.now();
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    let aiStart = Date.now();
     try {
       // Ask for the full analysis and the bullet rewrites in parallel.
+      aiStart = Date.now();
       const [analysisRaw, bulletsRaw] = await Promise.all([
         provider.chat({
           task: "resume_analysis",
@@ -238,6 +241,10 @@ export async function analyzeResume(
           temperature: 0.2,
           format: "json",
           maxOutputTokens: 4000,
+          // Per-call timeout must fit under the route's maxDuration=60s budget
+          // (with retries). 25s/call keeps the worst case under the limit so
+          // Vercel never returns an HTML timeout page.
+          timeoutMs: 25_000,
           userId,
         }),
         provider.chat({
@@ -247,12 +254,14 @@ export async function analyzeResume(
           temperature: 0.3,
           format: "json",
           maxOutputTokens: 2000,
+          timeoutMs: 25_000,
           userId,
         }).catch(() => ""),
       ]);
 
       // parseResumeAnalysis uses the robust parser (raw / fenced / balanced /
       // truncation-repair) + schema validation. Throws JSONParserError on failure.
+      const parseStart = Date.now();
       const analysis = parseResumeAnalysis(analysisRaw);
 
       let bulletImprovements: BulletImprovement[] = [];
@@ -264,6 +273,11 @@ export async function analyzeResume(
           bulletImprovements = [];
         }
       }
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[resume-analysis] attempt=${attempt + 1} aiMs=${Date.now() - aiStart} parseMs=${Date.now() - parseStart} totalMs=${Date.now() - startedAt}`,
+      );
 
       return {
         atsScore: analysis.ats_score,
@@ -284,6 +298,10 @@ export async function analyzeResume(
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Resume analysis failed");
+      // eslint-disable-next-line no-console
+      console.log(
+        `[resume-analysis] attempt=${attempt + 1} FAILED aiMs=${Date.now() - aiStart} totalMs=${Date.now() - startedAt} kind=${(error as { kind?: string })?.kind ?? "unknown"}`,
+      );
 
       // Config errors (bad credentials) are not retryable.
       const kind = (error as { kind?: string })?.kind;

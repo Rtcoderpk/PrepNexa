@@ -46,10 +46,14 @@ export async function generateFeedback(params: {
   userId?: string;
 }): Promise<InterviewFeedbackReport> {
   const provider = createLLMProvider();
+  const startedAt = Date.now();
 
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const attemptStart = Date.now();
+    let aiStart = attemptStart;
     try {
+      aiStart = Date.now();
       const raw = await provider.chat({
         task: "interview_feedback",
         messages: [
@@ -67,16 +71,29 @@ export async function generateFeedback(params: {
         temperature: 0.3,
         maxOutputTokens: 4096,
         format: "json",
+        // Per-call timeout must fit under the route's maxDuration=60s budget
+        // including retries (2 calls + 800ms backoff). 25s/call keeps the worst
+        // case under ~51s so Vercel never times out and returns an HTML page.
+        timeoutMs: 25_000,
         userId: params.userId,
       });
 
       // parseFeedbackReportJson performs robust extraction + schema validation
       // + a single controlled truncation-repair. It throws JSONParserError on
       // failure with diagnostics that never include raw output.
+      const parseStart = Date.now();
       const report = parseFeedbackReportJson(raw);
+      // eslint-disable-next-line no-console
+      console.log(
+        `[feedback] attempt=${attempt + 1} aiMs=${Date.now() - aiStart} parseMs=${Date.now() - parseStart} totalMs=${Date.now() - startedAt}`,
+      );
       return report;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Feedback failed");
+      // eslint-disable-next-line no-console
+      console.log(
+        `[feedback] attempt=${attempt + 1} FAILED aiMs=${Date.now() - aiStart} totalMs=${Date.now() - startedAt} kind=${(error as { kind?: string })?.kind ?? "unknown"}`,
+      );
 
       // Only retry on transient provider errors or parse failures (the parser
       // already attempted one repair internally; a second provider call may

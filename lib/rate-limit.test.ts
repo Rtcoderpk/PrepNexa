@@ -178,7 +178,9 @@ describe("interview client budget UX (P8-E)", () => {
   it("interview-chat feedback fetch surfaces a budgetLimit-specific toast", async () => {
     const fs = await import("node:fs");
     const src = fs.readFileSync("components/interview/interview-chat.tsx", "utf8");
-    expect(src).toContain("data.budgetLimit");
+    // The client reads budgetLimit from the (safely-parsed) JSON body.
+    expect(src).toContain("budgetLimit");
+    expect(src).toContain("AiResponseError");
   });
 });
 
