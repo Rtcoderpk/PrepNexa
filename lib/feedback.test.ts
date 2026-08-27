@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { parseFeedbackReportJson } from "@/lib/feedback";
+import { JSONParserError } from "@/lib/ai/json-parser";
 import { clampSpeech, clampVision } from "@/lib/validations";
 
 const validReport = {
@@ -44,12 +45,12 @@ describe("parseFeedbackReportJson", () => {
   });
 
   it("throws on unparseable content", () => {
-    expect(() => parseFeedbackReportJson("not json at all")).toThrow("Invalid JSON");
+    expect(() => parseFeedbackReportJson("not json at all")).toThrow(JSONParserError);
   });
 
   it("throws when the object fails schema validation", () => {
     const bad = { ...validReport, overall_score: 99 };
-    expect(() => parseFeedbackReportJson(JSON.stringify(bad))).toThrow("Invalid JSON");
+    expect(() => parseFeedbackReportJson(JSON.stringify(bad))).toThrow(JSONParserError);
   });
 });
 

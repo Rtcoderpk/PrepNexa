@@ -4,7 +4,7 @@ import type { Database } from "@/types/database";
 import { createLLMProvider } from "@/services/llm/provider";
 import { buildFeedbackPrompt } from "@/services/llm/prompts/feedback";
 import { parseFeedbackReportJson } from "@/lib/feedback";
-import { feedbackReportSchema } from "@/lib/validations";
+import { isJSONParserError, summarizeJSONParseError } from "@/lib/ai/json-parser";
 import type { InterviewFeedbackReport } from "@/types/feedback";
 
 export interface FeedbackTelemetry {
@@ -19,11 +19,25 @@ export interface FeedbackTelemetry {
 }
 
 const MAX_ATTEMPTS = 2;
+/** Backoff between retry attempts for transient provider/parse failures. */
+const RETRY_BACKOFF_MS = 800;
 
 function clampScore(value: number): number {
   return Math.min(10, Math.max(0, Math.round(value)));
 }
 
+/**
+ * Generates and validates an interview feedback report.
+ *
+ * Retry policy (bounded, no infinite loops):
+ *  - attempt 1: primary provider + JSON parse
+ *  - attempt 2: only if the prior attempt failed due to a transient provider
+ *    error (rate/timeout/5xx) OR a parse failure that may improve on retry
+ *    (truncation). Config errors (bad key) are NOT retried — they won't fix
+ *    themselves and we must not silently charge the provider.
+ *  - A single controlled truncation-repair is attempted inside the parser
+ *    itself before we decide to retry the whole request.
+ */
 export async function generateFeedback(params: {
   role?: string;
   resumeContext?: string;
@@ -51,20 +65,43 @@ export async function generateFeedback(params: {
         ],
         system: "",
         temperature: 0.3,
-        maxOutputTokens: 3000,
+        maxOutputTokens: 4096,
         format: "json",
         userId: params.userId,
       });
 
-      const parsed = parseFeedbackReportJson(raw);
-      const validated = feedbackReportSchema.safeParse(parsed);
-      if (validated.success) {
-        return validated.data;
-      }
-      lastError = new Error("Feedback failed validation");
+      // parseFeedbackReportJson performs robust extraction + schema validation
+      // + a single controlled truncation-repair. It throws JSONParserError on
+      // failure with diagnostics that never include raw output.
+      const report = parseFeedbackReportJson(raw);
+      return report;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Feedback failed");
+
+      // Only retry on transient provider errors or parse failures (the parser
+      // already attempted one repair internally; a second provider call may
+      // return complete output). Non-retryable errors propagate immediately so
+      // we don't waste requests on bad config.
+      const isConfigError =
+        error instanceof Error &&
+        (error as { kind?: string }).kind === "config";
+      if (isConfigError) {
+        throw error;
+      }
+
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS));
+      }
     }
+  }
+
+  // Log diagnostics for the final failure — never include raw model output
+  // (may contain PII / interview answers). Only structural info is logged.
+  if (isJSONParserError(lastError)) {
+    const diag = summarizeJSONParseError(lastError);
+    console.error(
+      `[feedback] JSON parse failure: task=${diag.task} provider=${diag.provider ?? "unknown"} model=${diag.model ?? "unknown"} parseError=${diag.parseError?.slice(0, 100)} rawLength=${diag.rawLength} repairPasses=${diag.repairPasses}`,
+    );
   }
 
   throw lastError ?? new Error("Failed to generate feedback");

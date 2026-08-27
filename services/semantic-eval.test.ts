@@ -110,12 +110,12 @@ describe("P6 reasoning-token floors", () => {
     expect(src).not.toContain("maxOutputTokens: 300");
   });
 
-  it("feedback and resume max tokens are unchanged", async () => {
+  it("feedback and resume max tokens are adequate (≥3000 for long reports)", async () => {
     const fs = await import("node:fs");
     const fb = fs.readFileSync("services/feedback.ts", "utf8");
     const ra = fs.readFileSync("services/resume-analysis.ts", "utf8");
-    expect(fb).toContain("maxOutputTokens: 3000");
-    expect(ra).toContain("maxOutputTokens: 3000");
+    expect(fb).toContain("maxOutputTokens: 4096");
+    expect(ra).toContain("maxOutputTokens: 4000");
     expect(ra).toContain("maxOutputTokens: 2000");
   });
 });

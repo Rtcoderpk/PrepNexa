@@ -1,6 +1,7 @@
 import { createLLMProvider } from "@/services/llm/provider";
 import { sanitizeInput } from "@/lib/security";
 import { z } from "zod";
+import { safeParseJson, isJSONParserError, summarizeJSONParseError } from "@/lib/ai/json-parser";
 
 /**
  * AI Resume Analyzer + ATS Checker + Job Description Matching.
@@ -184,53 +185,37 @@ ${resume}
 }
 
 // -------------------------------------------------------------------------
-// JSON parsing helpers
-// -------------------------------------------------------------------------
-
-function extractJson(raw: string): unknown {
-  const trimmed = raw.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenced) {
-      try {
-        return JSON.parse(fenced[1].trim());
-      } catch {
-        /* continue */
-      }
-    }
-    const objMatcher = raw.match(/\{[\s\S]*\}/);
-    if (objMatcher) {
-      try {
-        return JSON.parse(objMatcher[0]);
-      } catch {
-        /* continue */
-      }
-    }
-    const arrMatcher = raw.match(/\[[\s\S]*\]/);
-    if (arrMatcher) {
-      try {
-        return JSON.parse(arrMatcher[0]);
-      } catch {
-        /* continue */
-      }
-    }
-  }
-  return null;
-}
-
-function normalizeResumeText(text: string): string {
-  return sanitizeInput(text).slice(0, MAX_RESUME_CHARS);
-}
-
-// -------------------------------------------------------------------------
 // Public API
 // -------------------------------------------------------------------------
 
 const MAX_RESUME_CHARS = 12000;
 const MAX_JD_CHARS = 8000;
 const MAX_BULLETS = 7;
+const MAX_ATTEMPTS = 2;
+/** Backoff between retry attempts. */
+const RETRY_BACKOFF_MS = 800;
+
+function normalizeResumeText(text: string): string {
+  return sanitizeInput(text).slice(0, MAX_RESUME_CHARS);
+}
+
+// -------------------------------------------------------------------------
+// Robust JSON parsing (delegated to the shared parser). The previous hand-rolled
+// extractor used a greedy `\{[\s\S]*\}` regex that broke on nested objects and
+// trailing commentary, and offered no truncation recovery.
+// -------------------------------------------------------------------------
+
+const bulletArraySchema = z.array(bulletImprovementSchema);
+
+function parseResumeAnalysis(raw: string): ResumeAnalysis {
+  const result = safeParseJson(raw, resumeAnalysisSchema, { task: "resume_analysis" });
+  return result.data;
+}
+
+function parseBulletImprovements(raw: string): BulletImprovement[] {
+  const result = safeParseJson(raw, bulletArraySchema, { task: "resume_improvement" });
+  return result.data;
+}
 
 /** Analyzes a resume: ATS compatibility + overall quality + improvements. */
 export async function analyzeResume(
@@ -240,64 +225,88 @@ export async function analyzeResume(
   const resume = normalizeResumeText(text);
   const provider = createLLMProvider();
 
-  // Ask for the full analysis and the bullet rewrites in parallel.
-  const [analysisRaw, bulletsRaw] = await Promise.all([
-    provider.chat({
-      task: "resume_analysis",
-      system: "",
-      messages: [{ role: "user", content: buildAnalysisPrompt(resume) }],
-      temperature: 0.2,
-      format: "json",
-      maxOutputTokens: 3000,
-      userId,
-    }),
-    provider.chat({
-      task: "resume_improvement",
-      system: "",
-      messages: [{ role: "user", content: buildBulletPrompt(resume, MAX_BULLETS) }],
-      temperature: 0.3,
-      format: "json",
-      maxOutputTokens: 2000,
-      userId,
-    }).catch(() => ""),
-  ]);
+  let lastError: Error | null = null;
 
-  const parsedAnalysis = resumeAnalysisSchema.safeParse(
-    extractJson(analysisRaw),
-  );
-  if (!parsedAnalysis.success) {
-    throw new Error("The AI could not parse the resume analysis. Please try again.");
-  }
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      // Ask for the full analysis and the bullet rewrites in parallel.
+      const [analysisRaw, bulletsRaw] = await Promise.all([
+        provider.chat({
+          task: "resume_analysis",
+          system: "",
+          messages: [{ role: "user", content: buildAnalysisPrompt(resume) }],
+          temperature: 0.2,
+          format: "json",
+          maxOutputTokens: 4000,
+          userId,
+        }),
+        provider.chat({
+          task: "resume_improvement",
+          system: "",
+          messages: [{ role: "user", content: buildBulletPrompt(resume, MAX_BULLETS) }],
+          temperature: 0.3,
+          format: "json",
+          maxOutputTokens: 2000,
+          userId,
+        }).catch(() => ""),
+      ]);
 
-  const analysis = parsedAnalysis.data;
+      // parseResumeAnalysis uses the robust parser (raw / fenced / balanced /
+      // truncation-repair) + schema validation. Throws JSONParserError on failure.
+      const analysis = parseResumeAnalysis(analysisRaw);
 
-  let bulletImprovements: BulletImprovement[] = [];
-  if (bulletsRaw) {
-    const parsedBullets = z.array(bulletImprovementSchema).safeParse(
-      extractJson(bulletsRaw),
-    );
-    if (parsedBullets.success) {
-      bulletImprovements = parsedBullets.data.slice(0, MAX_BULLETS);
+      let bulletImprovements: BulletImprovement[] = [];
+      if (bulletsRaw) {
+        try {
+          bulletImprovements = parseBulletImprovements(bulletsRaw).slice(0, MAX_BULLETS);
+        } catch {
+          // Non-fatal: analysis is still valid without improvement suggestions.
+          bulletImprovements = [];
+        }
+      }
+
+      return {
+        atsScore: analysis.ats_score,
+        qualityScore: analysis.quality_score,
+        summary: analysis.summary,
+        strengths: analysis.strengths,
+        weaknesses: analysis.weaknesses,
+        topImprovements: analysis.top_improvements,
+        keywordAnalysis: analysis.keyword_analysis,
+        sectionAnalysis: analysis.section_analysis,
+        contactAnalysis: analysis.contact_analysis,
+        actionVerbs: analysis.action_verbs,
+        measurableAchievements: analysis.measurable_achievements,
+        grammar: analysis.grammar,
+        readability: analysis.readability,
+        bulletImprovements,
+        raw: analysis,
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Resume analysis failed");
+
+      // Config errors (bad credentials) are not retryable.
+      const kind = (error as { kind?: string })?.kind;
+      if (kind === "config") {
+        throw error;
+      }
+
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS));
+      }
     }
   }
 
-  return {
-    atsScore: analysis.ats_score,
-    qualityScore: analysis.quality_score,
-    summary: analysis.summary,
-    strengths: analysis.strengths,
-    weaknesses: analysis.weaknesses,
-    topImprovements: analysis.top_improvements,
-    keywordAnalysis: analysis.keyword_analysis,
-    sectionAnalysis: analysis.section_analysis,
-    contactAnalysis: analysis.contact_analysis,
-    actionVerbs: analysis.action_verbs,
-    measurableAchievements: analysis.measurable_achievements,
-    grammar: analysis.grammar,
-    readability: analysis.readability,
-    bulletImprovements,
-    raw: analysis,
-  };
+  // Log diagnostics for the final failure — never include raw model output
+  // (may contain PII / resume text). Only structural info is logged.
+  if (isJSONParserError(lastError)) {
+    const diag = summarizeJSONParseError(lastError);
+    console.error(
+      `[resume-analysis] JSON parse failure: task=${diag.task} provider=${diag.provider ?? "unknown"} model=${diag.model ?? "unknown"} parseError=${diag.parseError?.slice(0, 100)} rawLength=${diag.rawLength} repairPasses=${diag.repairPasses}`,
+    );
+  }
+
+  throw lastError ?? new Error("Resume analysis failed after retries");
 }
 
 /** Matches a resume against a job description. */
@@ -316,15 +325,12 @@ export async function matchResumeToJob(
     messages: [{ role: "user", content: buildJobMatchPrompt(resume, jd) }],
     temperature: 0.2,
     format: "json",
-    maxOutputTokens: 2000,
+    maxOutputTokens: 3000,
     userId,
   });
 
-  const parsed = jobMatchSchema.safeParse(extractJson(raw));
-  if (!parsed.success) {
-    throw new Error("The AI could not parse the job match. Please try again.");
-  }
-  return parsed.data;
+  const result = safeParseJson(raw, jobMatchSchema, { task: "job_match" });
+  return result.data;
 }
 
 export { MAX_RESUME_CHARS, MAX_JD_CHARS, MAX_BULLETS };

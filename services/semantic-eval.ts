@@ -1,5 +1,7 @@
 import { createLLMProvider } from "@/services/llm/provider";
 import { sanitizeInput } from "@/lib/security";
+import { safeParseJson } from "@/lib/ai/json-parser";
+import { z } from "zod";
 
 /**
  * Semantic answer evaluation. Uses a cloud LLM judgment of technical
@@ -106,17 +108,19 @@ Return a SINGLE valid JSON object, no markdown, no commentary:
   };
 }
 
-/** Parses the LLM's strict JSON reply; never throws. */
+const judgmentSchema = z.object({
+  // Accept any number — out-of-range values are clamped by the caller. This
+  // keeps semantic scoring non-critical (it never throws into the interview
+  // flow; bad model output simply falls back to offline defaults).
+  score: z.number(),
+  reason: z.string().optional(),
+});
+
+/** Parses the LLM's strict JSON reply; never throws — falls through to defaults. */
 function parseLlmJudgment(raw: string): { score: number; reason: string } {
   try {
-    const json = raw.match(/\{[\s\S]*\}/);
-    if (json) {
-      const parsed = JSON.parse(json[0]) as { score?: unknown; reason?: unknown };
-      return {
-        score: Number(parsed.score),
-        reason: typeof parsed.reason === "string" ? parsed.reason : "",
-      };
-    }
+    const { data } = safeParseJson(raw, judgmentSchema, { task: "semantic_scoring" });
+    return { score: data.score, reason: data.reason ?? "" };
   } catch {
     // Fall through to defaults.
   }

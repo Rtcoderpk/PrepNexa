@@ -1,39 +1,25 @@
-import { z } from "zod";
-import {
-  feedbackReportSchema,
-  type InterviewFeedbackReportData,
-} from "@/lib/validations";
+import { feedbackReportSchema, type InterviewFeedbackReportData } from "@/lib/validations";
+import { safeParseJson, isJSONParserError, type ParseOptions } from "@/lib/ai/json-parser";
 
 /**
- * Parses raw LLM output into a validated feedback report.
+ * Parses raw LLM output into a validated feedback report using a robust
+ * multi-strategy extractor (raw, fenced, balanced-brace, truncation repair).
  *
- * Cloud models sometimes wrap JSON in markdown fences or emit trailing
- * commentary despite being asked not to. We try, in order:
- *   1. exact JSON.parse
- *   2. first fenced ```json block
- *   3. first braced JSON object anywhere in the text
- * Return the first candidate that validates against the report schema.
+ * Throws a JSONParserError carrying task/provider/model diagnostics when the
+ * output cannot be extracted or fails schema validation. The error never
+ * contains the raw model output (which may include PII / interview answers).
  */
-export function parseFeedbackReportJson(raw: string): InterviewFeedbackReportData {
-  const candidates: string[] = [];
-
-  candidates.push(raw.trim());
-
-  const fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fencedMatch) candidates.push(fencedMatch[1].trim());
-
-  const objectMatch = raw.match(/\{[\s\S]*\}/);
-  if (objectMatch) candidates.push(objectMatch[0]);
-
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate);
-      const result = feedbackReportSchema.safeParse(parsed);
-      if (result.success) return result.data;
-    } catch {
-      // try next candidate
-    }
-  }
-
-  throw new Error("Invalid JSON in model response");
+export function parseFeedbackReportJson(
+  raw: string,
+  options?: Omit<ParseOptions, "task">,
+): InterviewFeedbackReportData {
+  const parseOpts: ParseOptions = {
+    task: "interview_feedback",
+    provider: options?.provider,
+    model: options?.model,
+  };
+  const result = safeParseJson(raw, feedbackReportSchema, parseOpts);
+  return result.data;
 }
+
+export { isJSONParserError };

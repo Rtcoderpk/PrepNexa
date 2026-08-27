@@ -1,4 +1,5 @@
 import { isAIError, userFacingAIError, AI_BUDGET_LIMIT_MESSAGE } from "@/lib/ai/ai-types";
+import { isJSONParserError } from "@/lib/ai/json-parser";
 
 /**
  * Server-action error carrying the friendly message plus a machine-readable
@@ -31,6 +32,13 @@ export function isBudgetLimitError(error: unknown): boolean {
  * errors pass through their own message.
  */
 export function friendlyAIErrorMessage(error: unknown): string {
+  // JSON parse failures (after retries + repair exhaustion) surface as a
+  // friendly message — the router has already attempted failover. The detailed
+  // diagnostics (provider, model, fingerprint) are logged server-side.
+  if (isJSONParserError(error)) {
+    return userFacingAIError();
+  }
+
   if (isAIError(error)) {
     // The per-user budget rejection keeps its specific, actionable copy so the
     // client can surface the upgrade/retry-later path. All other provider
